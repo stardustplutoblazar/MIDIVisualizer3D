@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Запекает OBJ-модель в поле расстояний для шейдера keys3d (маскот на щёчке корпуса).
+"""Bakes an OBJ model into a distance field for the keys3d shader (a mascot on the cheek block).
 
     python bake_mascot.py model.obj out.mascot --drop WATER,mud --height 1.4 [--thick 0.012] [--res 128]
 
-Модель — оболочка толщиной 2*thick (открытые поверхности вроде лепестков тоже работают),
-расстояние без знака по плотным точкам поверхности, в ширинах белой клавиши. Файл .mascot кладётся
-рядом с пресетами и выбирается в меню Mascot (там же поворот, наклон, размер, свет). Запекать лучше
-в исходной ориентации (--yaw 180: лицом к зрителю), поворачивать уже в программе.
+The model is a shell of thickness 2*thick (open surfaces such as petals work too), with an unsigned
+distance from dense surface samples, in white key widths. The .mascot file is chosen in the Mascot menu
+(which also has turn, lean, size and light). Better bake in the original orientation (--yaw 180: facing
+the viewer) and turn it in the application.
 """
 import argparse, sys, numpy as np
 from scipy.spatial import cKDTree
@@ -17,18 +17,18 @@ import mascot_file
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("obj"); ap.add_argument("out")
-    ap.add_argument("--drop", default="", help="материалы/объекты, которые выкинуть")
-    ap.add_argument("--xmax", type=float, default=None, help="выкинуть треугольники правее (исходные координаты)")
-    ap.add_argument("--move", default=None, help="xmin,dx,dy,dz: сдвинуть треугольники правее xmin (исходные координаты)")
-    ap.add_argument("--roll", type=float, default=0.0, help="наклон вокруг оси z (к клавишам: отрицательный)")
-    ap.add_argument("--yaw", type=float, default=180.0, help="поворот вокруг вертикали, градусы")
-    ap.add_argument("--pitch", type=float, default=0.0, help="наклон вокруг x (положить цветок: 90)")
-    ap.add_argument("--height", type=float, default=None, help="высота модели в ширинах белой клавиши")
-    ap.add_argument("--size", type=float, default=None, help="или наибольший размер")
+    ap.add_argument("--drop", default="", help="materials/objects to leave out")
+    ap.add_argument("--xmax", type=float, default=None, help="leave out triangles to the right of this (source coordinates)")
+    ap.add_argument("--move", default=None, help="xmin,dx,dy,dz: move triangles to the right of xmin (source coordinates)")
+    ap.add_argument("--roll", type=float, default=0.0, help="tilt around z (towards the keys: negative)")
+    ap.add_argument("--yaw", type=float, default=180.0, help="turn around the vertical, in degrees")
+    ap.add_argument("--pitch", type=float, default=0.0, help="tilt around x (to lay a model flat: 90)")
+    ap.add_argument("--height", type=float, default=None, help="model height in white key widths")
+    ap.add_argument("--size", type=float, default=None, help="or its largest dimension")
     ap.add_argument("--thick", type=float, default=0.012)
     ap.add_argument("--res", type=int, default=128)
-    ap.add_argument("--color", action="append", default=[], help="материал=r,g,b[,свечение] поверх Kd")
-    ap.add_argument("--set", action="append", default=[], help="заводская настройка: x= y= z= turn= lean= size= glow= light= lx= ly= lz= bulb= r= g= b=")
+    ap.add_argument("--color", action="append", default=[], help="material=r,g,b[,glow] over Kd")
+    ap.add_argument("--set", action="append", default=[], help="default setting stored in the file: x= y= z= turn= lean= size= glow= light= lx= ly= lz= bulb= r= g= b=")
     a = ap.parse_args()
 
     T, TM, TO, mats = load_obj(a.obj)
@@ -65,10 +65,10 @@ def main():
     V = (V - np.array([(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2])) * scale
     T = V.reshape(-1, 3, 3)
     ext = ext * scale
-    print(f"{len(T)} треугольников, размер {ext.round(2)} (x, y, z)")
+    print(f"{len(T)} triangles, size {ext.round(2)} (x, y, z)")
     C = T.mean(1)
-    print("центр верхней пятой:", C[C[:, 1] > 0.8 * ext[1]].mean(0).round(2),
-          "центр по высоте 40-80%:", C[(C[:, 1] > 0.4 * ext[1]) & (C[:, 1] < 0.8 * ext[1])].mean(0).round(2))
+    print("center of the top fifth:", C[C[:, 1] > 0.8 * ext[1]].mean(0).round(2),
+          "center of the 40-80% height band:", C[(C[:, 1] > 0.4 * ext[1]) & (C[:, 1] < 0.8 * ext[1])].mean(0).round(2))
 
     # Dense surface samples, area weighted.
     pad = 4 * a.thick + 0.03
@@ -78,9 +78,9 @@ def main():
     area = 0.5 * np.linalg.norm(np.cross(e1, e2), axis=1)
     count = np.maximum(1, np.ceil(area / step ** 2)).astype(int)
     total = count.sum()
-    print(f"точек поверхности: {total}")
+    print(f"surface samples: {total}")
     if total > 6_000_000:
-        sys.exit("слишком много точек, уменьши --res")
+        sys.exit("too many samples, lower --res")
     ti = np.repeat(np.arange(len(T)), count)
     r1, r2 = np.random.default_rng(0).random((2, total))
     flip = r1 + r2 > 1
@@ -105,7 +105,7 @@ def main():
     color = np.clip(col * 255 + 0.5, 0, 255).astype(np.uint8)
     # Far from the surface the distance only has to stay a lower bound: clamping it keeps precision near it.
     mascot_file.write(a.out, dist, color, half, center, (-2.0 * a.thick, 0.5), mascot_file.parse_defaults(a.set))
-    print(f"сетка {dims} (x, y, z), воксель {vox:.4f}, {a.out}")
+    print(f"grid {dims} (x, y, z), voxel {vox:.4f}, {a.out}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-"""Формат .mascot (читает Renderer::loadMascot): заголовок, затем zlib(расстояния uint16, x быстрее всех;
-цвета rgba uint8 на сетке вдвое реже). Расстояния в единицах модели, отображены на dist_range.
-В заголовке ещё заводские настройки модели (DEFAULTS), их программа ставит при выборе модели."""
+""".mascot format (read by Renderer::loadMascot): a header, then zlib(uint16 distances, x fastest;
+rgba uint8 colors on a grid twice as coarse). Distances are in model units, mapped to dist_range.
+The header also has the default settings of the model (DEFAULTS), applied when it is chosen in the menu."""
 import struct, zlib, numpy as np
 
 VERSION = 3
@@ -12,11 +12,11 @@ HEADER_V2 = struct.Struct("<4sI3I3I3f3f2fI")
 
 
 def parse_defaults(items):
-    """["x=1.6", "turn=60", ...] -> полный словарь настроек."""
+    """["x=1.6", "turn=60", ...] -> full dictionary of settings."""
     out = dict(DEFAULTS)
     for item in items:
         k, v = item.split("=")
-        assert k in out, "неизвестная настройка %s, есть: %s" % (k, " ".join(DEFAULTS))
+        assert k in out, "unknown setting %s, available: %s" % (k, " ".join(DEFAULTS))
         out[k] = float(v)
     return out
 
@@ -53,7 +53,7 @@ def read(path):
 
 
 def rewrite(path, defaults):
-    """Поменять заводские настройки без перепекания (расстояния уже квантованы, пишутся как есть)."""
+    """Change the default settings without baking again (distances are already quantized, written back as is)."""
     m = read(path)
     lo, hi = m["dist_range"]
     write(path, lo + m["dist"].astype(np.float64) / 65535 * (hi - lo), m["color"], m["half"], m["center"],
