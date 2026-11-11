@@ -492,10 +492,42 @@ void Upright::draw(bool front, const glm::vec2 & invScreenSize, const Settings &
 
 	_program.use();
 	_program.uniform("eye", _eye);
-	const glm::vec3 lightDir = glm::normalize(glm::vec3(-0.35f, 0.9f, -0.75f));
-	_program.uniform("lightDir", lightDir);
 	_program.uniform("fillLight", settings.fillLight);
 	_program.uniform("ambientLight", settings.ambientLight);
+	// The bulb stands where it does on the 3D keys: on the line behind the visible part of the keys.
+	const glm::vec3 bulb(settings.backLightPosition * count, settings.backLightHeight, _visibleEnd - 0.244f);
+	_program.uniform("backLight", settings.backLight);
+	_program.uniform("backLightPos", bulb);
+	_program.uniform("backLightRadius", settings.backLightRadius);
+	_program.uniform("backLightColor", settings.backLightColor);
+	_program.uniform("noteLight", settings.noteLight);
+	_program.uniform("noteLightRadius", settings.noteLightRadius);
+	{
+		// Where each played note touches its key: just above the key top, at the end of its visible part.
+		constexpr int maxLights = 24;
+		std::array<glm::vec3, maxLights> positions;
+		std::array<glm::vec3, maxLights> colors;
+		int lightCount = 0;
+		const float blackTop = 0.514f;
+		for(const auto & lit : settings.litNotes){
+			if(lightCount >= maxLights){
+				break;
+			}
+			const int n = lit.first;
+			if(std::find(notes.begin(), notes.end(), n) == notes.end()){
+				continue;
+			}
+			positions[lightCount] = isMinorNote(n) ? glm::vec3(anchor[n], 0.142f + blackTop, _visibleEnd - 0.03f)
+												   : glm::vec3(anchor[n], 0.142f, _visibleEnd - 0.244f);
+			colors[lightCount] = lit.second;
+			++lightCount;
+		}
+		_program.uniform("noteLightCount", lightCount);
+		if(lightCount > 0){
+			_program.uniforms("noteLights", size_t(lightCount), positions.data());
+			_program.uniforms("noteLightColors", size_t(lightCount), colors.data());
+		}
+	}
 
 	glDisable(GL_BLEND);
 	glEnable(GL_DEPTH_TEST);
@@ -503,10 +535,13 @@ void Upright::draw(bool front, const glm::vec2 & invScreenSize, const Settings &
 	glDepthMask(GL_TRUE);
 
 	if(!front){
-		// Shadow map: orthographic light over the whole piano.
-		const glm::vec3 center(0.5f * (railLeft + railRight), 4.0f, 10.0f);
+		// Shadow map of the bulb: orthographic, from the action towards the bulb.
+		const glm::vec3 center(0.5f * (railLeft + railRight), 5.0f, 12.0f);
+		const glm::vec3 toBulb = bulb - center;
+		const glm::vec3 lightDir = glm::length(toBulb) > 1e-3f ? glm::normalize(toBulb) : glm::vec3(0.0f, 1.0f, 0.0f);
 		const glm::vec3 lightEye = center + lightDir * 100.0f;
-		const glm::mat4 lightView = glm::lookAt(lightEye, center, glm::vec3(0.0f, 1.0f, 0.0f));
+		const glm::vec3 lightUp = std::abs(lightDir.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+		const glm::mat4 lightView = glm::lookAt(lightEye, center, lightUp);
 		const float halfWidth = 0.5f * (railRight - railLeft) + 6.0f;
 		const glm::mat4 lightProj = glm::ortho(-halfWidth, halfWidth, -halfWidth, halfWidth, 0.0f, 200.0f);
 		_lightViewProj = lightProj * lightView;

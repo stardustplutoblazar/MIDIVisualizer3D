@@ -64,7 +64,7 @@ public:
 	void setUprightNotes(bool on){ _uprightNotes = on; }
 	/// The action of the upright piano (front == false, right above the background image), or the visible
 	/// part of its keys (front == true, in place of the keyboard). The notes fall in between.
-	void drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, bool front);
+	void drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, const ColorArray & majorColors, const ColorArray & minorColors, bool front);
 
 	void drawPedals(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::PedalsState & state, float keyboardHeight, bool horizontalMode);
 

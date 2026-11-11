@@ -275,7 +275,7 @@ void Viewer::drawScene(bool transparentBG){
 			continue;
 		}
 		if(!uprightBackDrawn && layerId != Layer::BGTEXTURE && layerId != Layer::BLUR && layerId != Layer::BGCOLOR){
-			_renderer.drawUpright(_scene, _timer, invSizeFb, _state.keyboard, false);
+			_renderer.drawUpright(_scene, _timer, invSizeFb, _state.keyboard, _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors, _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors, false);
 			uprightBackDrawn = true;
 		}
 		if (_layers[layerId].draw && *(_layers[layerId].toggle)) {
@@ -283,7 +283,7 @@ void Viewer::drawScene(bool transparentBG){
 		}
 	}
 	if(!uprightBackDrawn){
-		_renderer.drawUpright(_scene, _timer, invSizeFb, _state.keyboard, false);
+		_renderer.drawUpright(_scene, _timer, invSizeFb, _state.keyboard, _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors, _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors, false);
 	}
 
 	_renderFramebuffer->unbind();
@@ -379,7 +379,7 @@ void Viewer::drawKeyboard(const glm::vec2 & invSize) {
 	const ColorArray & majColors = _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors;
 	const ColorArray & minColors = _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors;
 	if(uprightActive()){
-		_renderer.drawUpright(_scene, _timer, invSize, _state.keyboard, true);
+		_renderer.drawUpright(_scene, _timer, invSize, _state.keyboard, _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors, _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors, true);
 		return;
 	}
 	if(_state.keyboard.style3D && !_state.horizontalScroll){

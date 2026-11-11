@@ -13,13 +13,22 @@ uniform vec3 albedo;
 uniform float specular;
 uniform float gloss;
 uniform vec3 eye;
-uniform vec3 lightDir; ///< Towards the light.
-uniform vec3 lightColor = vec3(1.0, 0.94, 0.84);
-uniform float keyLight = 0.85;
-uniform float fillLight = 0.8;
-uniform float ambientLight = 0.55;
 uniform sampler2D shadowMap;
 uniform bool shadowPass = false;
+
+// Same lights as the 3D keys (keys3d.frag), on the same settings.
+uniform float fillLight = 0.7;
+uniform float ambientLight = 0.7;
+uniform float backLight = 60.0; ///< Warm bulb.
+uniform vec3 backLightPos; ///< Its position, computed on the CPU from its settings.
+uniform float backLightRadius = 1.3;
+uniform vec3 backLightColor = vec3(1.0, 0.72, 0.38);
+#define MAX_NOTE_LIGHTS 24
+uniform vec3 noteLights[MAX_NOTE_LIGHTS]; ///< Where each played note touches its key.
+uniform vec3 noteLightColors[MAX_NOTE_LIGHTS];
+uniform int noteLightCount = 0;
+uniform float noteLight = 10.0;
+uniform float noteLightRadius = 2.0;
 
 out vec4 fragColor;
 
@@ -39,6 +48,12 @@ float shadow(){
 	return lit / 25.0;
 }
 
+vec3 shade(vec3 n, vec3 v, vec3 l, vec3 base, float g, float sp, vec3 color, float amount){
+	float ndl = max(dot(n, l), 0.0);
+	float s = pow(max(dot(n, normalize(l + v)), 0.0), g) * sp;
+	return (base * ndl + s) * color * amount;
+}
+
 void main(){
 	if(shadowPass){
 		fragColor = vec4(1.0);
@@ -49,14 +64,41 @@ void main(){
 	if(dot(n, v) < 0.0){
 		n = -n;
 	}
-	vec3 l = normalize(lightDir);
-	float sh = shadow();
-	float ndl = max(dot(n, l), 0.0);
-	vec3 h = normalize(l + v);
-	float sp = pow(max(dot(n, h), 0.0), gloss) * specular;
-	vec3 sky = mix(vec3(0.30, 0.28, 0.26), vec3(0.62, 0.64, 0.70), n.y * 0.5 + 0.5);
-	vec3 fill = vec3(0.25, 0.22, 0.18) * max(dot(n, normalize(vec3(0.6, 0.3, -0.5))), 0.0);
 	vec3 base = albedo * instanceColors[In.instance];
-	vec3 c = base * (sky * ambientLight + fill * fillLight + lightColor * ndl * keyLight * sh) + vec3(1.0, 0.97, 0.9) * sp * sh * 0.8;
-	fragColor = vec4(pow(c, vec3(1.0 / 1.05)), 1.0);
+	vec3 p = In.pos;
+
+	// Ambient light takes the color of the bulb: the whole scene is bathed in its warmth.
+	vec3 color = base * 0.085 * backLightColor * ambientLight;
+	vec3 fillDir = normalize(vec3(0.0, 0.25, -1.0));
+	color += shade(n, v, fillDir, base, gloss, specular * 0.2, vec3(0.30, 0.31, 0.34), fillLight);
+
+	// The bulb, with the shadows of the action.
+	if(backLight > 0.0){
+		vec3 l = backLightPos - p;
+		float dl = length(l);
+		l /= dl;
+		float fall = backLight / (1.0 + pow(dl / max(backLightRadius, 0.01), 2.0));
+		color += shade(n, v, l, base, gloss, specular, backLightColor, fall * shadow());
+	}
+
+	// Light from the point where each played note touches its key.
+	float reach = 4.0 * noteLightRadius;
+	for(int i = 0; i < noteLightCount; ++i){
+		vec3 lp = noteLights[i];
+		if(abs(lp.x - p.x) > reach){
+			continue;
+		}
+		for(int s = 0; s < 2; ++s){
+			vec3 l = lp + vec3(0.0, float(s) * 3.0 * 0.142, 0.0) - p;
+			float dl = length(l);
+			l /= dl;
+			float fall = noteLight * (s == 0 ? 0.7 : 0.3) / (1.0 + pow(dl / noteLightRadius, 2.0));
+			fall *= clamp((reach - dl) / (2.0 * noteLightRadius), 0.0, 1.0);
+			color += shade(n, v, l, base, gloss, specular * 1.3, noteLightColors[i], fall);
+		}
+	}
+
+	// Soft tone mapping, so that light does not clip.
+	color = (1.0 - exp(-color * 1.15)) / (1.0 - exp(-1.15));
+	fragColor = vec4(color, 1.0);
 }

@@ -1118,7 +1118,7 @@ bool Renderer::loadUpright(const std::string & path){
 	return _upright.load(path);
 }
 
-void Renderer::drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, bool front) {
+void Renderer::drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, const ColorArray & majorColors, const ColorArray & minorColors, bool front) {
 	if(!_upright.loaded()){
 		return;
 	}
@@ -1139,5 +1139,24 @@ void Renderer::drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, 
 	settings.keyCount = _keyCount;
 	settings.fillLight = state.fillLight;
 	settings.ambientLight = state.ambientLight;
+	settings.backLight = state.backLight;
+	settings.backLightRadius = state.backLightRadius;
+	settings.backLightPosition = state.backLightPosition;
+	settings.backLightHeight = state.backLightHeight;
+	settings.backLightColor = state.backLightColor;
+	settings.noteLight = state.noteLight;
+	settings.noteLightRadius = state.noteLightRadius;
+	if(state.highlightKeys){
+		const auto& actives = scene->getActiveKeys();
+		for(int note = 0; note < 128; ++note){
+			const int set = actives[note];
+			if(set < 0){
+				continue;
+			}
+			const int pc = note % 12;
+			const bool minor = pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
+			settings.litNotes.emplace_back(note, minor ? minorColors[set] : majorColors[set]);
+		}
+	}
 	_upright.draw(front, invScreenSize, settings);
 }

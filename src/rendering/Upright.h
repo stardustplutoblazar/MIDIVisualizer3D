@@ -24,8 +24,18 @@ public:
 		int maxKey = 108;
 		unsigned int minKeyMajor = 0;
 		unsigned int keyCount = 52; ///< White keys on screen.
-		float fillLight = 0.8f;
-		float ambientLight = 0.55f;
+		// Lights of the 3D keys.
+		float fillLight = 0.7f;
+		float ambientLight = 0.7f;
+		float backLight = 60.0f;
+		float backLightRadius = 1.3f;
+		float backLightPosition = 0.5f;
+		float backLightHeight = 10.0f;
+		glm::vec3 backLightColor{1.0f, 0.72f, 0.38f};
+		float noteLight = 10.0f;
+		float noteLightRadius = 2.0f;
+		/// Played notes and the color of their light.
+		std::vector<std::pair<int, glm::vec3>> litNotes;
 	};
 
 	void setup();
