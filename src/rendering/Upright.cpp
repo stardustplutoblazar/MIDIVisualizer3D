@@ -1,0 +1,508 @@
+#include "Upright.h"
+#include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <fstream>
+#include <iterator>
+
+// Tuning of the per-note simulation (the reference is mechanism/anim/upright_ref.py).
+static const float kReturnAcc = 30.0f; ///< rad/s^2, hammer falling back to the rest rail.
+static const float kRebound = 0.55f; ///< Share of the speed the hammer keeps after hitting the string.
+static const float kJackReturn = 6.98f; ///< rad/s (400 deg/s), the jack spring snapping back under the butt.
+static const int kMaxInstances = 128;
+
+namespace {
+
+bool isMinorNote(int n){
+	const int pc = n % 12;
+	return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
+}
+
+/// Little-endian reader over the whole file.
+struct Reader {
+	const std::vector<char> & data;
+	size_t offset = 0;
+	bool ok = true;
+	explicit Reader(const std::vector<char> & d) : data(d) {}
+	template<typename T> T get(){
+		T v{};
+		if(offset + sizeof(T) > data.size()){ ok = false; return v; }
+		std::memcpy(&v, data.data() + offset, sizeof(T));
+		offset += sizeof(T);
+		return v;
+	}
+	glm::vec2 vec2(){ const float a = get<float>(); const float b = get<float>(); return {a, b}; }
+	std::vector<float> floats(size_t count){
+		std::vector<float> v(count, 0.0f);
+		if(offset + count * sizeof(float) > data.size()){ ok = false; return v; }
+		std::memcpy(v.data(), data.data() + offset, count * sizeof(float));
+		offset += count * sizeof(float);
+		return v;
+	}
+};
+
+}
+
+void Upright::setup(){
+	_program.init("upright_vert", "upright_frag");
+
+	glGenTextures(1, &_shadowTexture);
+	glBindTexture(GL_TEXTURE_2D, _shadowTexture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, _shadowSize, _shadowSize, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	glGenFramebuffers(1, &_shadowFramebuffer);
+	glBindFramebuffer(GL_FRAMEBUFFER, _shadowFramebuffer);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, _shadowTexture, 0);
+	glDrawBuffer(GL_NONE);
+	glReadBuffer(GL_NONE);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	checkGLError();
+	_ready = true;
+}
+
+bool Upright::load(const std::string & path){
+	// Free the previous model.
+	for(Mesh & mesh : _meshes){
+		glDeleteBuffers(1, &mesh.vbo);
+		glDeleteVertexArrays(1, &mesh.vao);
+	}
+	_meshes.clear();
+	_materials.clear();
+	_error.clear();
+	_notes = {};
+	if(path.empty()){
+		return true;
+	}
+	std::ifstream file(path, std::ios::binary);
+	if(!file.is_open()){
+		_error = "Can't open " + path;
+		return false;
+	}
+	std::vector<char> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+	if(data.size() < 8 || std::memcmp(data.data(), "UPRT", 4) != 0){
+		_error = "Not an upright piano file (.piano)";
+		return false;
+	}
+	Reader r(data);
+	r.offset = 4;
+	const uint32_t version = r.get<uint32_t>();
+	if(version != 1){
+		_error = "Unsupported .piano version " + std::to_string(version);
+		return false;
+	}
+	_phiMax = r.get<float>();
+	_chiString = r.get<float>();
+	_chiSetoff = r.get<float>();
+	_keyPivot = r.vec2();
+	_wippenPivot = r.vec2();
+	_jackPivot = r.vec2();
+	_hammerPivot = r.vec2();
+	_springBase = r.vec2();
+	_springTop = r.vec2();
+	_stringZ = r.get<float>();
+	_stringBottom = r.get<float>();
+	_stringTop = r.get<float>();
+	_visibleEnd = r.get<float>();
+	_railMargin = r.get<float>();
+	for(float & t : _tailOffset){
+		t = r.get<float>();
+	}
+	const uint32_t phiCount = r.get<uint32_t>();
+	_psi = r.floats(phiCount);
+	_push = r.floats(phiCount);
+	_catch = r.floats(phiCount);
+	_escapeRows = int(r.get<uint32_t>());
+	_escapeCols = int(r.get<uint32_t>());
+	_escape = r.floats(size_t(_escapeRows) * size_t(_escapeCols));
+	const uint32_t materialCount = r.get<uint32_t>();
+	for(uint32_t i = 0; i < materialCount && r.ok; ++i){
+		Material m;
+		m.color.r = r.get<float>();
+		m.color.g = r.get<float>();
+		m.color.b = r.get<float>();
+		m.specular = r.get<float>();
+		m.gloss = r.get<float>();
+		_materials.push_back(m);
+	}
+	const uint32_t meshCount = r.get<uint32_t>();
+	for(uint32_t i = 0; i < meshCount && r.ok; ++i){
+		Mesh mesh;
+		mesh.group = int(r.get<uint32_t>());
+		mesh.front = r.get<uint32_t>() != 0;
+		mesh.mask = r.get<uint32_t>();
+		mesh.material = int(r.get<uint32_t>());
+		const uint32_t vertexCount = r.get<uint32_t>();
+		const std::vector<float> vertices = r.floats(size_t(vertexCount) * 6);
+		if(!r.ok || mesh.material >= int(_materials.size())){
+			break;
+		}
+		mesh.count = GLsizei(vertexCount);
+		glGenVertexArrays(1, &mesh.vao);
+		glBindVertexArray(mesh.vao);
+		glGenBuffers(1, &mesh.vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(float) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+		glBindVertexArray(0);
+		_meshes.push_back(mesh);
+	}
+	if(!r.ok || phiCount < 2 || _escapeRows < 2 || _escapeCols < 2 || _meshes.size() != meshCount){
+		_error = "Truncated or damaged .piano file";
+		load("");
+		_error = "Truncated or damaged .piano file";
+		return false;
+	}
+	checkGLError();
+	return true;
+}
+
+float Upright::table(const std::vector<float> & t, float phi) const {
+	const float x = glm::clamp(phi / _phiMax, 0.0f, 1.0f) * float(t.size() - 1);
+	const int i = std::min(int(x), int(t.size()) - 2);
+	const float f = x - float(i);
+	return t[i] * (1.0f - f) + t[i + 1] * f;
+}
+
+float Upright::escape(float phi, float chi) const {
+	const float x = glm::clamp(phi / _phiMax, 0.0f, 1.0f) * float(_escapeRows - 1);
+	const int i = std::min(int(x), _escapeRows - 2);
+	const float fx = x - float(i);
+	const float y = glm::clamp((chi - _chiString) / (0.0f - _chiString), 0.0f, 1.0f) * float(_escapeCols - 1);
+	const int j = std::min(int(y), _escapeCols - 2);
+	const float fy = y - float(j);
+	auto e = [this](int a, int b){ return _escape[a * _escapeCols + b]; };
+	const float lo = e(i, j) * (1.0f - fx) + e(i + 1, j) * fx;
+	const float hi = e(i, j + 1) * (1.0f - fx) + e(i + 1, j + 1) * fx;
+	return lo * (1.0f - fy) + hi * fy;
+}
+
+void Upright::step(NoteState & s, float travel, float h) const {
+	const float phi = travel * _phiMax;
+	const float psi = table(_psi, phi);
+	const float push = table(_push, phi);
+	const float catchAngle = table(_catch, phi);
+	if(!s.escaped){
+		// The jack is at the hammer or ahead of it: it carries it.
+		if(push <= s.chi + 1e-6f){
+			s.omega = (push - s.prevPush) / h;
+			s.chi = push;
+		}
+		if(push <= _chiSetoff + 1e-4f && travel > 0.3f){
+			s.escaped = true;
+		}
+	}
+	s.prevPush = push;
+	const bool flying = s.escaped || s.chi < push - 1e-5f;
+	if(flying){
+		if(s.caught){
+			// The backcheck holds the hammer and pushes it while the key goes on down.
+			if(catchAngle < 0.0f){
+				s.chi = catchAngle;
+			} else {
+				s.caught = false;
+			}
+			s.omega = 0.0f;
+		} else {
+			s.omega += kReturnAcc * h;
+			s.chi += s.omega * h;
+			if(s.chi <= _chiString){
+				s.chi = _chiString;
+				s.omega = -s.omega * kRebound;
+			}
+			if(s.escaped && catchAngle < 0.0f && s.omega > 0.0f && s.chi >= catchAngle){
+				s.chi = catchAngle;
+				s.omega = 0.0f;
+				s.caught = true;
+			}
+		}
+		if(!s.escaped && s.chi > push){
+			// Lands back on the jack.
+			s.chi = push;
+			s.omega = 0.0f;
+		}
+		if(s.chi >= 0.0f){
+			s.chi = 0.0f;
+			s.omega = 0.0f;
+		}
+	}
+	const float need = s.escaped ? escape(phi, s.chi) : 0.0f;
+	s.zeta = s.escaped ? std::max(need, s.zeta - kJackReturn * h) : std::max(0.0f, s.zeta - kJackReturn * h);
+	if(s.escaped && need <= 1e-4f && !s.caught && s.chi >= push - 1e-4f && travel < 0.6f){
+		s.escaped = false;
+	}
+	s.phi = phi;
+	s.psi = psi;
+}
+
+void Upright::update(const std::array<float, 128> & travel, float dt, bool snap){
+	if(!loaded()){
+		return;
+	}
+	if(snap){
+		// Paused or seeking: the steady state of each key, pressed (hammer caught) or at rest.
+		for(size_t k = 0; k < _notes.size(); ++k){
+			NoteState & s = _notes[k];
+			s = NoteState();
+			const float phi = glm::clamp(travel[k], 0.0f, 1.0f) * _phiMax;
+			s.phi = phi;
+			s.psi = table(_psi, phi);
+			s.prevPush = table(_push, phi);
+			if(travel[k] > 0.5f){
+				const float c = table(_catch, phi);
+				s.escaped = true;
+				s.caught = c < 0.0f;
+				s.chi = s.caught ? c : 0.0f;
+				s.zeta = escape(phi, s.chi);
+			} else {
+				s.chi = std::min(0.0f, s.prevPush);
+			}
+		}
+		return;
+	}
+	const int substeps = std::max(1, int(std::ceil(dt / 0.001f)));
+	const float h = dt / float(substeps);
+	for(size_t k = 0; k < _notes.size(); ++k){
+		const float t = glm::clamp(travel[k], -0.2f, 1.2f);
+		// Keys at rest with nothing moving: skip the substeps.
+		NoteState & s = _notes[k];
+		if(t == 0.0f && s.chi == 0.0f && s.zeta == 0.0f && !s.escaped){
+			s.phi = 0.0f;
+			s.psi = 0.0f;
+			s.prevPush = 0.0f;
+			continue;
+		}
+		for(int i = 0; i < substeps; ++i){
+			step(s, t, h);
+		}
+	}
+}
+
+glm::mat4 Upright::about(const glm::vec2 & pivot, float angle) const {
+	// Pivots are (y, z); model angles turn +z (back) towards +y (up), i.e. -angle around +x.
+	glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, pivot.x, pivot.y));
+	m = glm::rotate(m, -angle, glm::vec3(1.0f, 0.0f, 0.0f));
+	return glm::translate(m, glm::vec3(0.0f, -pivot.x, -pivot.y));
+}
+
+void Upright::instances(const Mesh & mesh, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight, std::vector<glm::mat4> & mats, std::vector<glm::vec3> & tints) const {
+	mats.clear();
+	tints.clear();
+	if(mesh.group == RAIL){
+		glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(railLeft, 0.0f, 0.0f));
+		mats.push_back(glm::scale(m, glm::vec3(railRight - railLeft, 1.0f, 1.0f)));
+		tints.emplace_back(1.0f);
+		return;
+	}
+	// Bass strings are copper wound: tint of the steel material.
+	const glm::vec3 copper = glm::vec3(0.72f, 0.42f, 0.24f) / glm::vec3(0.62f, 0.63f, 0.66f);
+	for(int n : notes){
+		if(mesh.group == KEY && ((mesh.mask >> (n % 12)) & 1u) == 0){
+			continue;
+		}
+		const NoteState & s = _notes[n];
+		const glm::mat4 a = glm::translate(glm::mat4(1.0f), glm::vec3(anchor[n], 0.0f, 0.0f));
+		glm::vec3 tint(1.0f);
+		switch(mesh.group){
+			case KEY:
+			case CAPSTAN:
+				mats.push_back(a * about(_keyPivot, s.phi));
+				break;
+			case WIPPEN:
+				mats.push_back(a * about(_wippenPivot, s.psi));
+				break;
+			case JACK:
+				mats.push_back(a * about(_wippenPivot, s.psi) * about(_jackPivot, s.zeta));
+				break;
+			case HAMMER:
+				mats.push_back(a * about(_hammerPivot, s.chi));
+				break;
+			case SPRING: {
+				// Unit helix along +y, stretched between its seat on the wippen and the toe of the jack.
+				const glm::mat4 w = about(_wippenPivot, s.psi);
+				const glm::vec4 b = w * glm::vec4(0.0f, _springBase.x, _springBase.y, 1.0f);
+				const glm::vec4 t = w * about(_jackPivot, s.zeta) * glm::vec4(0.0f, _springTop.x, _springTop.y, 1.0f);
+				const glm::vec2 d(t.y - b.y, t.z - b.z);
+				const float len = glm::length(d);
+				glm::mat4 m = glm::translate(a, glm::vec3(0.0f, b.y, b.z));
+				m = glm::rotate(m, std::atan2(d.y, d.x), glm::vec3(1.0f, 0.0f, 0.0f));
+				mats.push_back(glm::scale(m, glm::vec3(1.0f, len, 1.0f)));
+				break;
+			}
+			case STRING: {
+				const float f = float(n - 21) / 87.0f;
+				const float radius = 3.2f * std::pow(0.6f / 3.2f, f) / 35.0f;
+				glm::mat4 m = glm::translate(a, glm::vec3(0.0f, _stringBottom, _stringZ));
+				mats.push_back(glm::scale(m, glm::vec3(radius, _stringTop - _stringBottom, radius)));
+				if(n < 51){
+					tint = copper;
+				}
+				break;
+			}
+			default:
+				mats.push_back(a);
+				break;
+		}
+		tints.push_back(tint);
+	}
+}
+
+void Upright::drawMeshes(int frontFilter, bool shadowPass, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight){
+	std::vector<glm::mat4> mats;
+	std::vector<glm::vec3> tints;
+	_program.uniform("shadowPass", shadowPass);
+	for(const Mesh & mesh : _meshes){
+		if(!shadowPass && int(mesh.front) != frontFilter){
+			continue;
+		}
+		instances(mesh, anchor, notes, railLeft, railRight, mats, tints);
+		if(mats.empty()){
+			continue;
+		}
+		const size_t count = std::min(mats.size(), size_t(kMaxInstances));
+		_program.uniforms("instances", count, mats.data());
+		_program.uniforms("instanceColors", count, tints.data());
+		const Material & mat = _materials[mesh.material];
+		_program.uniform("albedo", mat.color);
+		_program.uniform("specular", mat.specular);
+		_program.uniform("gloss", mat.gloss);
+		glBindVertexArray(mesh.vao);
+		glDrawArraysInstanced(GL_TRIANGLES, 0, mesh.count, GLsizei(count));
+	}
+	glBindVertexArray(0);
+}
+
+void Upright::draw(bool front, const glm::vec2 & invScreenSize, const Settings & settings){
+	if(!_ready || !loaded()){
+		return;
+	}
+	const glm::vec2 screen = 1.0f / invScreenSize;
+
+	// Layout: the same columns as the notes and the 3D keys. Anchor of a note: the axis of its key lever.
+	std::array<float, 128> anchor{};
+	std::vector<int> notes;
+	{
+		int major = 0;
+		for(int n = 0; n < 128; ++n){
+			bool visible = false;
+			if(!isMinorNote(n)){
+				const int i = major - int(settings.minKeyMajor);
+				visible = i >= 0 && i < int(settings.keyCount);
+				anchor[n] = float(i) + _tailOffset[n % 12];
+				++major;
+			} else {
+				const int i = major - 1 - int(settings.minKeyMajor);
+				const int pc = n % 12;
+				const float shift = (pc == 1 || pc == 6) ? -0.09f : ((pc == 3 || pc == 10) ? 0.09f : 0.0f);
+				visible = i >= 0 && i < int(settings.keyCount) - 1;
+				anchor[n] = float(i + 1) + shift * settings.minorWidth;
+			}
+			if(visible && n >= std::max(21, settings.minKey) && n <= std::min(108, settings.maxKey)){
+				notes.push_back(n);
+			}
+		}
+	}
+	if(notes.empty()){
+		return;
+	}
+	const float railLeft = anchor[notes.front()] - _railMargin;
+	const float railRight = anchor[notes.back()] + _railMargin;
+
+	// Camera of the 3D keys: scale 1:1 with the flat layers at the end of the visible part of the keys.
+	const float count = float(settings.keyCount);
+	const float phi = glm::radians(settings.tilt);
+	const glm::vec3 forward(0.0f, -std::sin(phi), std::cos(phi));
+	const glm::vec3 up(0.0f, std::cos(phi), std::sin(phi));
+	const glm::vec3 right(1.0f, 0.0f, 0.0f);
+	_eye = glm::vec3(0.5f * count, 0.0f, _visibleEnd) - forward * settings.perspective;
+	glm::mat4 view(1.0f);
+	for(int c = 0; c < 3; ++c){
+		view[c][0] = right[c];
+		view[c][1] = up[c];
+		view[c][2] = -forward[c];
+	}
+	view[3] = glm::vec4(-glm::dot(right, _eye), -glm::dot(up, _eye), glm::dot(forward, _eye), 1.0f);
+	const float focal = (screen.x / count) * settings.perspective;
+	const float lineY = settings.keyboardHeight * screen.y;
+	const float zNear = 1.0f;
+	const float zFar = 400.0f;
+	glm::mat4 proj(0.0f);
+	proj[0][0] = 2.0f * focal / screen.x;
+	proj[1][1] = 2.0f * focal / screen.y;
+	proj[2][1] = -(2.0f * lineY / screen.y - 1.0f);
+	proj[2][2] = -(zFar + zNear) / (zFar - zNear);
+	proj[3][2] = -2.0f * zFar * zNear / (zFar - zNear);
+	proj[2][3] = -1.0f;
+	_viewProj = proj * view;
+
+	_program.use();
+	_program.uniform("eye", _eye);
+	const glm::vec3 lightDir = glm::normalize(glm::vec3(-0.35f, 0.9f, -0.75f));
+	_program.uniform("lightDir", lightDir);
+	_program.uniform("fillLight", settings.fillLight);
+	_program.uniform("ambientLight", settings.ambientLight);
+
+	glDisable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+
+	if(!front){
+		// Shadow map: orthographic light over the whole piano.
+		const glm::vec3 center(0.5f * (railLeft + railRight), 4.0f, 10.0f);
+		const glm::vec3 lightEye = center + lightDir * 100.0f;
+		const glm::mat4 lightView = glm::lookAt(lightEye, center, glm::vec3(0.0f, 1.0f, 0.0f));
+		const float halfWidth = 0.5f * (railRight - railLeft) + 6.0f;
+		const glm::mat4 lightProj = glm::ortho(-halfWidth, halfWidth, -halfWidth, halfWidth, 0.0f, 200.0f);
+		_lightViewProj = lightProj * lightView;
+		_program.uniform("lightViewProj", _lightViewProj);
+
+		GLint previousFramebuffer = 0;
+		GLint viewport[4];
+		glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousFramebuffer);
+		glGetIntegerv(GL_VIEWPORT, viewport);
+		// Not sampled while it is the render target.
+		_program.texture("shadowMap", 0, GL_TEXTURE_2D);
+		glBindFramebuffer(GL_FRAMEBUFFER, _shadowFramebuffer);
+		glViewport(0, 0, _shadowSize, _shadowSize);
+		glClear(GL_DEPTH_BUFFER_BIT);
+		drawMeshes(-1, true, anchor, notes, railLeft, railRight);
+		glBindFramebuffer(GL_FRAMEBUFFER, GLuint(previousFramebuffer));
+		glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+
+		// The action, in the back half of the depth buffer; the keys will be drawn in the front half later.
+		glClear(GL_DEPTH_BUFFER_BIT);
+	}
+	_program.uniform("viewProj", _viewProj);
+	_program.uniform("lightViewProj", _lightViewProj);
+	_program.uniform("depthRange", front ? glm::vec2(0.0f, 0.5f) : glm::vec2(0.5f, 1.0f));
+	_program.texture("shadowMap", _shadowTexture, GL_TEXTURE_2D);
+	drawMeshes(front ? 1 : 0, false, anchor, notes, railLeft, railRight);
+
+	glDisable(GL_DEPTH_TEST);
+	glUseProgram(0);
+	checkGLError();
+}
+
+void Upright::clean(){
+	load("");
+	_program.clean();
+	if(_shadowFramebuffer){
+		glDeleteFramebuffers(1, &_shadowFramebuffer);
+		_shadowFramebuffer = 0;
+	}
+	if(_shadowTexture){
+		glDeleteTextures(1, &_shadowTexture);
+		_shadowTexture = 0;
+	}
+	_ready = false;
+}

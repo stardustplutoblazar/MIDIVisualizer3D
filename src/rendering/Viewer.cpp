@@ -263,15 +263,26 @@ void Viewer::drawScene(bool transparentBG){
 
 	glClear(GL_COLOR_BUFFER_BIT);
 
+	// Upright piano: its action is drawn right above the background image, under the notes.
+	const bool upright = uprightActive();
+	bool uprightBackDrawn = !upright;
+
 	// Draw the layers in order.
 	for (int i = 0; i < _state.layersMap.size(); ++i) {
 		const int layerId = _state.layersMap[i];
 		if (layerId >= _layers.size()) {
 			continue;
 		}
+		if(!uprightBackDrawn && layerId != Layer::BGTEXTURE && layerId != Layer::BLUR && layerId != Layer::BGCOLOR){
+			_renderer.drawUpright(_scene, _timer, invSizeFb, _state.keyboard, false);
+			uprightBackDrawn = true;
+		}
 		if (_layers[layerId].draw && *(_layers[layerId].toggle)) {
 			(this->*_layers[layerId].draw)(invSizeFb);
 		}
+	}
+	if(!uprightBackDrawn){
+		_renderer.drawUpright(_scene, _timer, invSizeFb, _state.keyboard, false);
 	}
 
 	_renderFramebuffer->unbind();
@@ -366,6 +377,10 @@ void Viewer::drawScore(const glm::vec2 & invSize) {
 void Viewer::drawKeyboard(const glm::vec2 & invSize) {
 	const ColorArray & majColors = _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors;
 	const ColorArray & minColors = _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors;
+	if(uprightActive()){
+		_renderer.drawUpright(_scene, _timer, invSize, _state.keyboard, true);
+		return;
+	}
 	if(_state.keyboard.style3D && !_state.horizontalScroll){
 		_renderer.drawKeyboard3D(_scene, _timer, invSize, _state.keyboard, _state.mascot, majColors, minColors);
 		return;
@@ -1124,6 +1139,26 @@ void Viewer::showKeyboardOptions(){
 	ImGui::Checkbox("3D keys", &_state.keyboard.style3D);
 	ImGui::helpTooltip(s_keyboard_3d_dsc);
 	if(_state.keyboard.style3D){
+		ImGui::Checkbox("Upright piano##Keys3D", &_state.keyboard.upright);
+		ImGui::helpTooltip(s_keyboard_upright_dsc);
+		if(_state.keyboard.upright){
+			ImGuiSameLine(COLUMN_SIZE);
+			if(ImGui::Button("Load model...##Upright")){
+				char *outPath = nullptr;
+				int res = sr_gui_ask_load_file("Select upright piano", "", "piano", &outPath);
+				System::forceLocale();
+				if(res == SR_GUI_VALIDATED && outPath){
+					_state.keyboard.uprightPath = { std::string(outPath) };
+				}
+				free(outPath);
+			}
+			ImGui::helpTooltip(s_keyboard_upright_path_dsc);
+			if(_state.keyboard.uprightPath.empty()){
+				ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "Choose a .piano model");
+			} else if(!_renderer.uprightError().empty()){
+				ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", _renderer.uprightError().c_str());
+			}
+		}
 		ImGuiSameLine(COLUMN_SIZE);
 		ImGuiPushItemWidth(25);
 		ImGui::ColorEdit3("Felt##Keys3D", &_state.keyboard.feltColor[0], ImGuiColorEditFlags_NoInputs);
@@ -1182,6 +1217,22 @@ void Viewer::showKeyboardOptions(){
 		ImGui::PopItemWidth();
 
 	}
+}
+
+bool Viewer::uprightActive(){
+	if(!(_state.showKeyboard && _state.keyboard.style3D && _state.keyboard.upright && !_state.horizontalScroll)){
+		return false;
+	}
+	// The settings parser splits paths at spaces.
+	std::string path;
+	for(const std::string& part : _state.keyboard.uprightPath){
+		path += (path.empty() ? "" : " ") + part;
+	}
+	if(path.size() > 1 && path[0] == '~' && std::getenv("HOME")){
+		path = std::string(std::getenv("HOME")) + path.substr(1);
+	}
+	_renderer.loadUpright(path);
+	return _renderer.uprightLoaded();
 }
 
 void Viewer::selectMascot(const std::string & path){

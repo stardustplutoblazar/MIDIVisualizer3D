@@ -163,6 +163,7 @@ void Renderer::renderSetup(){
 	_programKeyMajors.init("majorKeys_vert", "majorKeys_frag");
 	_programKeyMinors.init("minorKeys_vert", "minorKeys_frag");
 	_programKeys3D.init("keys3d_vert", "keys3d_frag");
+	_upright.setup();
 	_keys3DUpscale.init("screenquad_frag");
 	_programPedals.init("pedal_vert", "pedal_frag");
 	_programScoreBars.init("score_bars_vert", "score_bars_frag");
@@ -278,6 +279,7 @@ void Renderer::setMinMaxKeys(int minKey, int minKeyMajor, int notesCount){
 	_programParticules.uniform("minNote", minKey);
 	_programParticules.uniform("notesCount", float(notesCount));
 	// Refresh score settings (used on CPU)
+	_minKey = minKey;
 	_minKeyMajor = minKeyMajor;
 	_keyCount = notesCount;
 	glUseProgram(0);
@@ -544,13 +546,15 @@ bool Renderer::loadMascot(const std::string & path){
 	return true;
 }
 
-void Renderer::drawKeyboard3D(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, const State::MascotState & mascot, const ColorArray & majorColors, const ColorArray & minorColors) {
-
+bool Renderer::updateKeyTravel(const std::shared_ptr<MIDIScene>& scene, float time, const State::KeyboardState & state, float * stepOut) {
 	// Key travel: a damped spring towards pressed or released, stiffer on the way down.
 	// The slight overshoot is the key hitting the felt at the bottom, and bouncing back on release.
 	// Driven by the scene time, so that exports are deterministic; when paused or seeking, keys snap.
 	const auto& actives = scene->getActiveKeys();
 	const float dt = time - _keyAnimTime;
+	if(stepOut){
+		*stepOut = dt;
+	}
 	_keyAnimTime = time;
 	const bool snap = dt <= 0.0f || dt > 0.25f;
 	const int substeps = snap ? 0 : int(std::ceil(dt / 0.001f));
@@ -573,6 +577,13 @@ void Renderer::drawKeyboard3D(const std::shared_ptr<MIDIScene>& scene, float tim
 		}
 		_keyTravel[k] = glm::clamp(_keyTravel[k], -0.2f, 1.2f);
 	}
+	return snap;
+}
+
+void Renderer::drawKeyboard3D(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, const State::MascotState & mascot, const ColorArray & majorColors, const ColorArray & minorColors) {
+
+	updateKeyTravel(scene, time, state);
+	const auto& actives = scene->getActiveKeys();
 
 	// Position of a key along the keyboard, laid out exactly as the shader places the keys (in white key
 	// widths from the left edge). Black key between white keys i and i+1, shifted like in the flat keyboard.
@@ -1086,9 +1097,42 @@ void Renderer::clean(){
 	_keys3DLow.reset();
 	_keys3DUpscale.clean();
 	loadMascot("");
+	_upright.clean();
 	_programPedals.clean();
 	_programWave.clean();
 	_programWaveNoise.clean();
 	_programScoreBars.clean();
 	_programScoreLabels.clean();
+}
+
+bool Renderer::loadUpright(const std::string & path){
+	if(path == _uprightPath && (_upright.loaded() || !_upright.error().empty())){
+		return _upright.loaded();
+	}
+	_uprightPath = path;
+	return _upright.load(path);
+}
+
+void Renderer::drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, bool front) {
+	if(!_upright.loaded()){
+		return;
+	}
+	if(!front){
+		// Once per frame, before anything else of the piano: key travel and the actions.
+		float dt = 0.0f;
+		const bool snap = updateKeyTravel(scene, time, state, &dt);
+		_upright.update(_keyTravel, dt, snap);
+	}
+	Upright::Settings settings;
+	settings.tilt = state.tilt;
+	settings.perspective = state.perspective;
+	settings.keyboardHeight = _keyboardHeight;
+	settings.minorWidth = _minorWidth;
+	settings.minKey = _minKey;
+	settings.maxKey = 127;
+	settings.minKeyMajor = _minKeyMajor;
+	settings.keyCount = _keyCount;
+	settings.fillLight = state.fillLight;
+	settings.ambientLight = state.ambientLight;
+	_upright.draw(front, invScreenSize, settings);
 }

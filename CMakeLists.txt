@@ -128,6 +128,8 @@ set(Sources
 	"src/rendering/Viewer.h"
 	"src/rendering/Renderer.cpp"
 	"src/rendering/Renderer.h"
+	"src/rendering/Upright.cpp"
+	"src/rendering/Upright.h"
 	"src/rendering/ScreenQuad.cpp"
 	"src/rendering/ScreenQuad.h"
 	"src/rendering/State.cpp"

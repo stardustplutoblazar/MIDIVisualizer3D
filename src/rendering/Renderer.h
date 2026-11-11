@@ -6,6 +6,7 @@
 #include "State.h"
 #include "../helpers/ProgramUtilities.h"
 #include "ScreenQuad.h"
+#include "Upright.h"
 
 #include <fstream>
 #include <memory>
@@ -55,6 +56,14 @@ public:
 	/// Settings stored with the loaded mascot (its look from the mockups, path left empty), null if none is loaded.
 	const State::MascotState * mascotDefaults() const { return _mascotDist ? &_mascotDefaults : nullptr; }
 
+	/// Upright piano mode: load its .piano model (empty path unloads), and why it failed if it did.
+	bool loadUpright(const std::string & path);
+	const std::string & uprightError() const { return _upright.error(); }
+	bool uprightLoaded() const { return _upright.loaded(); }
+	/// The action of the upright piano (front == false, right above the background image), or the visible
+	/// part of its keys (front == true, in place of the keyboard). The notes fall in between.
+	void drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, bool front);
+
 	void drawPedals(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::PedalsState & state, float keyboardHeight, bool horizontalMode);
 
 	void drawWaves(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::WaveState & state, float keyboardHeight);
@@ -64,6 +73,10 @@ public:
 	void clean();
 
 private:
+	/// Key travel spring of the 3D keys and the upright piano. Returns true when keys snap (paused, seeking).
+	bool updateKeyTravel(const std::shared_ptr<MIDIScene>& scene, float time, const State::KeyboardState & state, float * step = nullptr);
+	Upright _upright;
+	std::string _uprightPath;
 	
 	ShaderProgram _programNotes;
 	ShaderProgram _programFlashes;
@@ -120,6 +133,7 @@ private:
 	GLuint _texNoise;
 
 	// Cached info.
+	int _minKey{0};
 	unsigned int _minKeyMajor{0};
 	unsigned int _keyCount{128};
 };

@@ -271,6 +271,8 @@ void State::defineOptions(){
 	_sharedInfos[s_keyboard_3d_back_height_key] = {Category::KEYBOARD, s_keyboard_3d_back_height_dsc, Type::FLOAT, {0.0f, 10.0f}};
 	_sharedInfos[s_color_keyboard_back_light_key] = {Category::KEYBOARD, s_color_keyboard_back_light_dsc, Type::COLOR};
 	_sharedInfos[s_keyboard_3d_resolution_key] 	= {Category::KEYBOARD, s_keyboard_3d_resolution_dsc, Type::FLOAT, {0.25f, 1.0f}};
+	_sharedInfos[s_keyboard_upright_key] 		= {Category::KEYBOARD, s_keyboard_upright_dsc, Type::BOOLEAN};
+	_sharedInfos[s_keyboard_upright_path_key] 	= {Category::KEYBOARD, s_keyboard_upright_path_dsc, Type::PATH};
 
 	// Mascot
 	_sharedInfos[s_mascot_path_key] 			= {Category::MASCOT, s_mascot_path_dsc, Type::PATH};
@@ -415,6 +417,7 @@ void State::updateOptions(){
 	_boolInfos[s_keyboard_custom_colors_key] = &keyboard.customKeyColors;
 	_boolInfos[s_keyboard_minor_edges_key] = &keyboard.minorEdges;
 	_boolInfos[s_keyboard_3d_key] = &keyboard.style3D;
+	_boolInfos[s_keyboard_upright_key] = &keyboard.upright;
 	_boolInfos[s_show_score_key] = &showScore;
 	_boolInfos[s_show_bg_img_key] = &background.image;
 	_boolInfos[s_show_notes_key] = &showNotes;
@@ -545,6 +548,7 @@ void State::updateOptions(){
 	_pathInfos[s_notes_minor_img_path_key] = &notes.minorImagePath;
 	_pathInfos[s_flashes_img_path_key] = &flashes.imagePath;
 	_pathInfos[s_mascot_path_key] = &mascot.path;
+	_pathInfos[s_keyboard_upright_path_key] = &keyboard.uprightPath;
 	_intInfos[s_flashes_img_rows_key] = &flashes.texRowCount;
 	_intInfos[s_flashes_img_columns_key] = &flashes.texColCount;
 
@@ -945,6 +949,8 @@ void State::reset(){
 	keyboard.size = 0.2f;
 	keyboard.minorHeight = 0.6f;
 	keyboard.style3D = false;
+	keyboard.upright = false;
+	keyboard.uprightPath.clear();
 	keyboard.tilt = 40.0f;
 	keyboard.perspective = 91.0f;
 	keyboard.fillLight = 0.7f;

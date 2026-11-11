@@ -127,6 +127,8 @@ public:
 		float backLightHeight; ///< Its height above the white keys, in white key widths.
 		glm::vec3 backLightColor; ///< Its color.
 		glm::vec3 feltColor; ///< Felt strip behind the 3D keys.
+		bool upright; ///< Upright piano with its action instead of the 3D keys.
+		std::vector<std::string> uprightPath; ///< Its .piano model.
 	};
 
 	/// A baked 3D model standing on the 3D keyboard.

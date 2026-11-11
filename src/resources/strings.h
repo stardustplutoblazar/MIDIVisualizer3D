@@ -277,6 +277,12 @@ constexpr const char* s_keyboard_3d_back_height_dsc 		= "Height of the bulb abov
 constexpr const char* s_color_keyboard_back_light_key 		= "color-keyboard-back-light";
 constexpr const char* s_color_keyboard_back_light_dsc 		= "Color of the back light behind the 3D keys";
 
+constexpr const char* s_keyboard_upright_key 				= "keyboard-upright";
+constexpr const char* s_keyboard_upright_dsc 				= "Draw an upright piano with its action (hammers, wippens...) instead of the 3D keys, from a .piano model";
+
+constexpr const char* s_keyboard_upright_path_key 			= "keyboard-upright-path";
+constexpr const char* s_keyboard_upright_path_dsc 			= "Upright piano model, a .piano file exported from the 3D model (absolute path)";
+
 constexpr const char* s_keyboard_3d_resolution_key 		= "keyboard-3d-resolution";
 constexpr const char* s_keyboard_3d_resolution_dsc 		= "Resolution of the 3D keyboard relative to the frame (lower: lighter for the GPU, softer edges)";
 

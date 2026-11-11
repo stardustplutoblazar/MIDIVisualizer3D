@@ -119,6 +119,8 @@ private:
 
 	/// Switch to another mascot file and take the settings stored with it.
 	void selectMascot(const std::string & path);
+	/// Upright piano shown (and its model loaded) instead of the 3D keys.
+	bool uprightActive();
 
 	void showFlashOptions();
 

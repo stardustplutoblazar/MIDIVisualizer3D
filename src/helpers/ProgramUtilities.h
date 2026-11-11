@@ -88,6 +88,16 @@ inline void ShaderProgram::uniform(const std::string& name, const glm::mat3& val
 }
 
 template<>
+inline void ShaderProgram::uniform(const std::string& name, const glm::mat4& val){
+	glUniformMatrix4fv(_uniforms[name], 1, GL_FALSE, &val[0][0]);
+}
+
+template<>
+inline void ShaderProgram::uniforms(const std::string& name, size_t count, const glm::mat4* vals){
+	glUniformMatrix4fv(_uniforms[name], (unsigned int)count, GL_FALSE, (GLfloat*)vals);
+}
+
+template<>
 inline void ShaderProgram::uniforms(const std::string& name, size_t count, const int* vals){
 	glUniform1iv(_uniforms[name], (unsigned int)count, vals);
 }
