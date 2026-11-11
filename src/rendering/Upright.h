@@ -56,7 +56,7 @@ public:
 	}
 
 	/// Advance the simulation of every note. travel: 0 rest, 1 key at the bottom. snap: jump to the steady state.
-	void update(const std::array<float, 128> & travel, float dt, bool snap);
+	void update(const std::array<float, 128> & travel, const std::array<float, 128> & velocities, float dt, bool snap);
 
 	/// Shadow map and action (front == false), or visible part of the keys (front == true).
 	void draw(bool front, const glm::vec2 & invScreenSize, const Settings & settings);
@@ -93,9 +93,14 @@ private:
 		bool escaped = false; ///< The jack has let the hammer go (set-off).
 		bool armed = false; ///< The hammer went past the backcheck after set-off: it will be caught.
 		float phi = 0.0f; ///< Key angle, for drawing.
+		float sparkAge = -1.0f; ///< Seconds since the hammer hit the string, negative: no spark.
+		float sparkLevel = 0.0f; ///< Brightness of the spark, from the velocity of the note.
 	};
 
-	enum Group { KEY = 0, CAPSTAN, WIPPEN, JACK, HAMMER, STATIC, RAIL, SPRING, STRING };
+	enum Group { KEY = 0, CAPSTAN, WIPPEN, JACK, HAMMER, STATIC, RAIL, SPRING, STRING, SPARK };
+
+	/// Height of the spark on its string and its brightness, from its age.
+	glm::vec4 spark(const NoteState & s) const;
 
 	float table(const std::vector<float> & t, float phi) const;
 	float escape(float phi, float chi) const;
@@ -111,6 +116,7 @@ private:
 	ShaderProgram _program;
 	bool _ready = false;
 	std::vector<Mesh> _meshes;
+	Mesh _sparkHead; ///< Small sphere, the head of each spark.
 	std::vector<Material> _materials;
 	std::string _error;
 

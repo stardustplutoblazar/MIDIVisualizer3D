@@ -17,6 +17,7 @@ MIDIScene::~MIDIScene(){}
 MIDIScene::MIDIScene(){
 	// Prepare actives notes array.
 	_actives.fill(-1);
+	_velocities.fill(0.5f);
 	// Particle systems pool.
 	_particles = std::vector<Particles>(256);
 	_notes = {GPUNote()};
