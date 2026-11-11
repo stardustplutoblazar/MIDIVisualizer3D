@@ -72,21 +72,24 @@ private:
 	};
 
 	struct NoteState {
+		float psi = 0.0f; ///< Wippen angle (negative: lifted).
+		float psiVel = 0.0f;
+		float prevTarget = 0.0f; ///< Wippen angle given by the key at the previous step.
+		bool hasPrevTarget = false;
 		float chi = 0.0f; ///< Hammer angle (negative: towards the string).
 		float omega = 0.0f; ///< Hammer angular speed.
 		float zeta = 0.0f; ///< Jack tilt away from the butt.
-		float prevPush = 0.0f;
+		float zetaVel = 0.0f;
 		bool escaped = false; ///< The jack has let the hammer go (set-off).
-		bool caught = false; ///< The backcheck holds the hammer.
-		// Results for drawing.
-		float phi = 0.0f;
-		float psi = 0.0f;
+		bool armed = false; ///< The hammer went past the backcheck after set-off: it will be caught.
+		float phi = 0.0f; ///< Key angle, for drawing.
 	};
 
 	enum Group { KEY = 0, CAPSTAN, WIPPEN, JACK, HAMMER, STATIC, RAIL, SPRING, STRING };
 
 	float table(const std::vector<float> & t, float phi) const;
 	float escape(float phi, float chi) const;
+	float phiOfPsi(float psi) const;
 	void step(NoteState & s, float travel, float h) const;
 
 	/// Model matrix of each instance of a mesh, and the color tint of each one.

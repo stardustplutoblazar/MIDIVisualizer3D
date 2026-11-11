@@ -6,10 +6,17 @@
 #include <fstream>
 #include <iterator>
 
-// Tuning of the per-note simulation (the reference is mechanism/anim/upright_ref.py).
-static const float kReturnAcc = 30.0f; ///< rad/s^2, hammer falling back to the rest rail.
-static const float kRebound = 0.55f; ///< Share of the speed the hammer keeps after hitting the string.
-static const float kJackReturn = 6.98f; ///< rad/s (400 deg/s), the jack spring snapping back under the butt.
+// Tuning of the per-note simulation (the reference is mechanism/anim/upright_ref.py, step_dyn).
+// Every contact is a felt: a spring and a damper, given as natural frequency (rad/s) and damping ratio.
+static const float kTau = 6.2831853f;
+static const float kWippenGravity = 90.0f; ///< rad/s^2, wippen falling back onto the capstan.
+static const float kWippenBounce = 0.3f; ///< Share of the speed the wippen keeps when it lands on the capstan.
+static const float kHammerReturn = 30.0f; ///< rad/s^2, butt spring and gravity.
+static const glm::vec2 kJackFelt(kTau * 60.0f, 0.3f);
+static const glm::vec2 kStringFelt(kTau * 260.0f, 0.1f);
+static const glm::vec2 kCushionFelt(kTau * 30.0f, 0.55f);
+static const glm::vec2 kBackcheckFelt(kTau * 25.0f, 1.2f);
+static const glm::vec2 kJackSpring(kTau * 18.0f, 0.35f);
 static const int kMaxInstances = 128;
 
 namespace {
@@ -186,62 +193,101 @@ float Upright::escape(float phi, float chi) const {
 	return lo * (1.0f - fy) + hi * fy;
 }
 
+float Upright::phiOfPsi(float psi) const {
+	// Key angle that puts the wippen at psi: the tables are indexed by the key angle.
+	const int n = int(_psi.size());
+	if(psi >= _psi[0]){
+		return 0.0f;
+	}
+	for(int i = 0; i < n - 1; ++i){
+		const float a = _psi[i];
+		const float b = _psi[i + 1];
+		if((a - psi) * (b - psi) <= 0.0f && a != b){
+			return (float(i) + (psi - a) / (b - a)) / float(n - 1) * _phiMax;
+		}
+	}
+	return _phiMax;
+}
+
+/// Felt contact at 'rest': pushes towards side (+1 or -1) when the part goes past it, as an angular acceleration.
+static float felt(float x, float v, float rest, const glm::vec2 & wz, float side){
+	const float pen = (rest - x) * side;
+	if(pen <= 0.0f){
+		return 0.0f;
+	}
+	const float w = wz.x;
+	const float damping = (v * side < 0.0f) ? 1.0f : 0.3f; // Softer while the felt pushes back.
+	return side * (w * w * pen) - 2.0f * wz.y * w * v * damping;
+}
+
 void Upright::step(NoteState & s, float travel, float h) const {
-	const float phi = travel * _phiMax;
-	const float psi = table(_psi, phi);
+	const float phiKey = travel * _phiMax;
+	const float target = table(_psi, phiKey);
+	// Wippen: carried by the capstan while it pushes; when the key drops faster than the wippen falls,
+	// it falls under its weight, lands on the capstan felt and bounces a little.
+	const float targetVel = s.hasPrevTarget ? (target - s.prevTarget) / h : 0.0f;
+	if(s.psi >= target - 1e-7f){
+		s.psiVel = targetVel;
+		s.psi = target;
+	} else {
+		s.psiVel += kWippenGravity * h;
+		s.psi += s.psiVel * h;
+		if(s.psi >= target){
+			const float landing = s.psiVel - targetVel;
+			s.psi = target;
+			s.psiVel = targetVel - landing * kWippenBounce;
+			if(s.psiVel < targetVel - 1e-6f){
+				s.psi = target + s.psiVel * h;
+			}
+		}
+	}
+	s.prevTarget = target;
+	s.hasPrevTarget = true;
+	if(s.psi > 0.0f){
+		s.psi = 0.0f;
+		s.psiVel = std::min(s.psiVel, 0.0f);
+	}
+	const float phi = s.psi < -1e-6f ? std::max(0.0f, phiOfPsi(s.psi)) : 0.0f;
 	const float push = table(_push, phi);
 	const float catchAngle = table(_catch, phi);
+	// Set-off: the jack lets the hammer go.
+	if(!s.escaped && push <= _chiSetoff + 1e-4f && travel > 0.3f){
+		s.escaped = true;
+	}
+	// Hammer: thrown by the jack, bounces on the string, caught by the backcheck, back on the rest rail.
+	float acc = kHammerReturn;
 	if(!s.escaped){
-		// The jack is at the hammer or ahead of it: it carries it.
-		if(push <= s.chi + 1e-6f){
-			s.omega = (push - s.prevPush) / h;
-			s.chi = push;
+		acc += felt(s.chi, s.omega, push, kJackFelt, -1.0f);
+	}
+	acc += felt(s.chi, s.omega, _chiString, kStringFelt, 1.0f);
+	acc += felt(s.chi, s.omega, 0.0f, kCushionFelt, -1.0f);
+	if(s.escaped && catchAngle < 0.0f){
+		if(s.chi < catchAngle - 0.01f){
+			s.armed = true;
 		}
-		if(push <= _chiSetoff + 1e-4f && travel > 0.3f){
-			s.escaped = true;
+		if(s.armed){
+			acc += felt(s.chi, s.omega, catchAngle, kBackcheckFelt, -1.0f);
 		}
 	}
-	s.prevPush = push;
-	const bool flying = s.escaped || s.chi < push - 1e-5f;
-	if(flying){
-		if(s.caught){
-			// The backcheck holds the hammer and pushes it while the key goes on down.
-			if(catchAngle < 0.0f){
-				s.chi = catchAngle;
-			} else {
-				s.caught = false;
-			}
-			s.omega = 0.0f;
-		} else {
-			s.omega += kReturnAcc * h;
-			s.chi += s.omega * h;
-			if(s.chi <= _chiString){
-				s.chi = _chiString;
-				s.omega = -s.omega * kRebound;
-			}
-			if(s.escaped && catchAngle < 0.0f && s.omega > 0.0f && s.chi >= catchAngle){
-				s.chi = catchAngle;
-				s.omega = 0.0f;
-				s.caught = true;
-			}
-		}
-		if(!s.escaped && s.chi > push){
-			// Lands back on the jack.
-			s.chi = push;
-			s.omega = 0.0f;
-		}
-		if(s.chi >= 0.0f){
-			s.chi = 0.0f;
-			s.omega = 0.0f;
-		}
-	}
+	s.omega += acc * h;
+	s.chi += s.omega * h;
+	// Jack: its spring brings it back under the butt, never into it.
 	const float need = s.escaped ? escape(phi, s.chi) : 0.0f;
-	s.zeta = s.escaped ? std::max(need, s.zeta - kJackReturn * h) : std::max(0.0f, s.zeta - kJackReturn * h);
-	if(s.escaped && need <= 1e-4f && !s.caught && s.chi >= push - 1e-4f && travel < 0.6f){
-		s.escaped = false;
+	s.zetaVel += (kJackSpring.x * kJackSpring.x * (need - s.zeta) - 2.0f * kJackSpring.y * kJackSpring.x * s.zetaVel) * h;
+	s.zeta += s.zetaVel * h;
+	if(s.zeta < need){
+		s.zeta = need;
+		s.zetaVel = std::max(s.zetaVel, 0.0f);
 	}
-	s.phi = phi;
-	s.psi = psi;
+	if(s.zeta < 0.0f){
+		s.zeta = 0.0f;
+		s.zetaVel = std::max(s.zetaVel, 0.0f);
+	}
+	if(s.escaped && need <= 1e-4f && s.chi >= push - 0.02f && travel < 0.6f){
+		s.escaped = false;
+		s.armed = false;
+	}
+	s.phi = phiKey;
 }
 
 void Upright::update(const std::array<float, 128> & travel, float dt, bool snap){
@@ -256,15 +302,17 @@ void Upright::update(const std::array<float, 128> & travel, float dt, bool snap)
 			const float phi = glm::clamp(travel[k], 0.0f, 1.0f) * _phiMax;
 			s.phi = phi;
 			s.psi = table(_psi, phi);
-			s.prevPush = table(_push, phi);
+			s.prevTarget = s.psi;
+			s.hasPrevTarget = true;
+			const float push = table(_push, phi);
 			if(travel[k] > 0.5f){
 				const float c = table(_catch, phi);
 				s.escaped = true;
-				s.caught = c < 0.0f;
-				s.chi = s.caught ? c : 0.0f;
+				s.armed = c < 0.0f;
+				s.chi = s.armed ? c : 0.0f;
 				s.zeta = escape(phi, s.chi);
 			} else {
-				s.chi = std::min(0.0f, s.prevPush);
+				s.chi = std::min(0.0f, push);
 			}
 		}
 		return;
@@ -275,10 +323,9 @@ void Upright::update(const std::array<float, 128> & travel, float dt, bool snap)
 		const float t = glm::clamp(travel[k], -0.2f, 1.2f);
 		// Keys at rest with nothing moving: skip the substeps.
 		NoteState & s = _notes[k];
-		if(t == 0.0f && s.chi == 0.0f && s.zeta == 0.0f && !s.escaped){
-			s.phi = 0.0f;
-			s.psi = 0.0f;
-			s.prevPush = 0.0f;
+		if(std::abs(t) < 1e-4f && std::abs(s.chi) < 1e-5f && std::abs(s.omega) < 1e-3f && s.zeta < 1e-5f && std::abs(s.psi) < 1e-6f && !s.escaped){
+			s = NoteState();
+			s.hasPrevTarget = true;
 			continue;
 		}
 		for(int i = 0; i < substeps; ++i){
