@@ -37,6 +37,14 @@ public:
 
 	const std::string & error() const { return _error; }
 
+	/// Centre of each black note from the boundary between its two white keys, in white key widths,
+	/// so that the notes fall on the keys of the model.
+	std::array<float, 12> minorOffsets() const {
+		std::array<float, 12> o{};
+		for(int pc : {1, 3, 6, 8, 10}){ o[pc] = _tailOffset[pc] - 1.0f; }
+		return o;
+	}
+
 	/// Advance the simulation of every note. travel: 0 rest, 1 key at the bottom. snap: jump to the steady state.
 	void update(const std::array<float, 128> & travel, float dt, bool snap);
 

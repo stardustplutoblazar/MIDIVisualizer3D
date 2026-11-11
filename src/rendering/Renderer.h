@@ -60,6 +60,8 @@ public:
 	bool loadUpright(const std::string & path);
 	const std::string & uprightError() const { return _upright.error(); }
 	bool uprightLoaded() const { return _upright.loaded(); }
+	/// Notes laid out on the keys of the upright piano (its black keys are not where the flat ones are).
+	void setUprightNotes(bool on){ _uprightNotes = on; }
 	/// The action of the upright piano (front == false, right above the background image), or the visible
 	/// part of its keys (front == true, in place of the keyboard). The notes fall in between.
 	void drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, bool front);
@@ -77,6 +79,7 @@ private:
 	bool updateKeyTravel(const std::shared_ptr<MIDIScene>& scene, float time, const State::KeyboardState & state, float * step = nullptr);
 	Upright _upright;
 	std::string _uprightPath;
+	bool _uprightNotes = false;
 	
 	ShaderProgram _programNotes;
 	ShaderProgram _programFlashes;

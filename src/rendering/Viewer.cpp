@@ -265,6 +265,7 @@ void Viewer::drawScene(bool transparentBG){
 
 	// Upright piano: its action is drawn right above the background image, under the notes.
 	const bool upright = uprightActive();
+	_renderer.setUprightNotes(upright);
 	bool uprightBackDrawn = !upright;
 
 	// Draw the layers in order.

@@ -352,6 +352,11 @@ void Renderer::drawParticles(const std::shared_ptr<MIDIScene>& scene, float time
 void Renderer::drawNotes(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::NotesState & state, bool reverseScroll, bool prepass){
 	
 	_programNotes.use();
+	_programNotes.uniform("customMinorShifts", _uprightNotes);
+	if(_uprightNotes){
+		const std::array<float, 12> offsets = _upright.minorOffsets();
+		_programNotes.uniforms("minorOffsets", offsets.size(), offsets.data());
+	}
 	
 	// Uniforms setup.
 	const float maxCornerRadius = 0.12f; // Internal tweaking to avoid notes whose edges are not timing-aligned.

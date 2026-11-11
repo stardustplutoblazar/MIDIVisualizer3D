@@ -16,6 +16,8 @@ vec2 flipIfNeeded(vec2 inPos){
 }
 
 uniform int minNoteMajor;
+uniform bool customMinorShifts = false;
+uniform float minorOffsets[12];
 uniform float notesCount;
 
 out INTERFACE {
@@ -61,7 +63,12 @@ void main(){
 	vertLoc += (reverseMode ? -1.0 : 1.0) * (Out.noteSize.y * 0.5 + mainSpeed * (id.y - time));
 	vec2 noteShift = vec2(horizLoc, vertLoc);
 
-	noteShift.x += id.w * minorShift(minorIds[int(id.x)] % 12) * Out.noteSize.x;
+	if(customMinorShifts){
+		// Upright piano: black notes centred on the black keys of the model.
+		noteShift.x += id.w * minorOffsets[minorIds[int(id.x)] % 12] * 2.0 / notesCount;
+	} else {
+		noteShift.x += id.w * minorShift(minorIds[int(id.x)] % 12) * Out.noteSize.x;
+	}
 
 	// Scale uv.
 	Out.uv = Out.noteSize * v;

@@ -400,11 +400,10 @@ void Upright::draw(bool front, const glm::vec2 & invScreenSize, const Settings &
 				anchor[n] = float(i) + _tailOffset[n % 12];
 				++major;
 			} else {
+				// Same layout as the model (even steps of the levers): from the white key on the left.
 				const int i = major - 1 - int(settings.minKeyMajor);
-				const int pc = n % 12;
-				const float shift = (pc == 1 || pc == 6) ? -0.09f : ((pc == 3 || pc == 10) ? 0.09f : 0.0f);
 				visible = i >= 0 && i < int(settings.keyCount) - 1;
-				anchor[n] = float(i + 1) + shift * settings.minorWidth;
+				anchor[n] = float(i) + _tailOffset[n % 12];
 			}
 			if(visible && n >= std::max(21, settings.minKey) && n <= std::min(108, settings.maxKey)){
 				notes.push_back(n);
