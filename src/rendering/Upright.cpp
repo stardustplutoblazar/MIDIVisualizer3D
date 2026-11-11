@@ -18,12 +18,6 @@ static const glm::vec2 kCushionFelt(kTau * 30.0f, 0.55f);
 static const glm::vec2 kBackcheckFelt(kTau * 25.0f, 1.2f);
 static const glm::vec2 kJackSpring(kTau * 18.0f, 0.35f);
 static const float kKeyGlow = 0.9f; ///< Light inside a key pressed to the bottom.
-// Spark running up a string when the hammer hits it.
-static const float kSparkDuration = 0.8f; ///< Seconds to reach the top of the string.
-static const float kSparkStart = 12.1f; ///< Height where the hammer hits the string.
-static const float kSparkTail = 1.5f; ///< Length of the lit trail behind it, in white key widths.
-static const float kSparkRadius = 0.14f;
-static const float kSparkDim = 0.75f; ///< Kept discreet: it must not draw the eye from the notes.
 static const int kMaxInstances = 128;
 
 namespace {
@@ -77,34 +71,6 @@ void Upright::setup(){
 	glDrawBuffer(GL_NONE);
 	glReadBuffer(GL_NONE);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	// Unit sphere for the heads of the sparks (position = normal).
-	{
-		std::vector<float> v;
-		const int n = 8;
-		auto push = [&v](float th, float ph){
-			const glm::vec3 p(std::sin(th) * std::cos(ph), std::cos(th), std::sin(th) * std::sin(ph));
-			v.insert(v.end(), {p.x, p.y, p.z, p.x, p.y, p.z});
-		};
-		for(int i = 0; i < n; ++i){
-			for(int j = 0; j < 2 * n; ++j){
-				const float t0 = 3.14159265f * float(i) / n, t1 = 3.14159265f * float(i + 1) / n;
-				const float p0 = 3.14159265f * float(j) / n, p1 = 3.14159265f * float(j + 1) / n;
-				push(t0, p0); push(t1, p0); push(t1, p1);
-				push(t0, p0); push(t1, p1); push(t0, p1);
-			}
-		}
-		_sparkHead.count = GLsizei(v.size() / 6);
-		glGenVertexArrays(1, &_sparkHead.vao);
-		glBindVertexArray(_sparkHead.vao);
-		glGenBuffers(1, &_sparkHead.vbo);
-		glBindBuffer(GL_ARRAY_BUFFER, _sparkHead.vbo);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(float) * v.size(), v.data(), GL_STATIC_DRAW);
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-		glBindVertexArray(0);
-	}
 	checkGLError();
 	_ready = true;
 }
@@ -304,12 +270,8 @@ void Upright::step(NoteState & s, float travel, float h) const {
 			acc += felt(s.chi, s.omega, catchAngle, kBackcheckFelt, -1.0f);
 		}
 	}
-	const float before = s.chi;
 	s.omega += acc * h;
 	s.chi += s.omega * h;
-	if(before > _chiString && s.chi <= _chiString){
-		s.sparkAge = 0.0f; // Level set by update(), which knows the velocity.
-	}
 	// Jack: its spring brings it back under the butt, never into it.
 	const float need = s.escaped ? escape(phi, s.chi) : 0.0f;
 	s.zetaVel += (kJackSpring.x * kJackSpring.x * (need - s.zeta) - 2.0f * kJackSpring.y * kJackSpring.x * s.zetaVel) * h;
@@ -329,7 +291,7 @@ void Upright::step(NoteState & s, float travel, float h) const {
 	s.phi = phiKey;
 }
 
-void Upright::update(const std::array<float, 128> & travel, const std::array<float, 128> & velocities, float dt, bool snap){
+void Upright::update(const std::array<float, 128> & travel, float dt, bool snap){
 	if(!loaded()){
 		return;
 	}
@@ -362,39 +324,15 @@ void Upright::update(const std::array<float, 128> & travel, const std::array<flo
 		const float t = glm::clamp(travel[k], -0.2f, 1.2f);
 		// Keys at rest with nothing moving: skip the substeps.
 		NoteState & s = _notes[k];
-		if(std::abs(t) < 1e-4f && std::abs(s.chi) < 1e-5f && std::abs(s.omega) < 1e-3f && s.zeta < 1e-5f && std::abs(s.psi) < 1e-6f && !s.escaped && s.sparkAge < 0.0f){
+		if(std::abs(t) < 1e-4f && std::abs(s.chi) < 1e-5f && std::abs(s.omega) < 1e-3f && s.zeta < 1e-5f && std::abs(s.psi) < 1e-6f && !s.escaped){
 			s = NoteState();
 			s.hasPrevTarget = true;
 			continue;
 		}
-		const bool sparkBefore = s.sparkAge >= 0.0f;
-		const float ageBefore = s.sparkAge;
 		for(int i = 0; i < substeps; ++i){
-			const float previous = s.sparkAge;
 			step(s, t, h);
-			if(s.sparkAge >= 0.0f && previous == s.sparkAge){
-				s.sparkAge += h;
-			}
-		}
-		if(s.sparkAge >= 0.0f && (!sparkBefore || s.sparkAge < ageBefore)){
-			// New hit: brightness from the velocity of the note, in steps of 10%.
-			s.sparkLevel = std::round(glm::clamp(velocities[k], 0.0f, 1.0f) * 10.0f) / 10.0f * kSparkDim;
-		}
-		if(s.sparkAge > kSparkDuration){
-			s.sparkAge = -1.0f;
 		}
 	}
-}
-
-glm::vec4 Upright::spark(const NoteState & s) const {
-	if(s.sparkAge < 0.0f){
-		return glm::vec4(0.0f);
-	}
-	const float f = glm::clamp(s.sparkAge / kSparkDuration, 0.0f, 1.0f);
-	const float rise = 1.0f - std::pow(1.0f - f, 3.0f); // Fast first, slowing down.
-	const float height = kSparkStart + (_stringTop - kSparkStart) * rise;
-	const float brightness = s.sparkLevel * std::pow(1.0f - f, 1.5f);
-	return glm::vec4(height, brightness, kSparkTail, 0.0f);
 }
 
 glm::mat4 Upright::about(const glm::vec2 & pivot, float angle) const {
@@ -475,9 +413,7 @@ void Upright::drawMeshes(int frontFilter, bool shadowPass, const std::array<floa
 	std::vector<glm::mat4> mats;
 	std::vector<glm::vec3> tints;
 	std::vector<glm::vec3> glows;
-	std::vector<glm::vec4> sparks(kMaxInstances, glm::vec4(0.0f));
 	_program.uniform("shadowPass", shadowPass);
-	_program.uniform("sparkHeads", false);
 	// The keys glow from the inside; the light of the notes only touches the keys, it must not leak between them.
 	_program.uniform("translucent", true);
 	_program.uniform("noteLightsOn", frontFilter == 1);
@@ -492,16 +428,6 @@ void Upright::drawMeshes(int frontFilter, bool shadowPass, const std::array<floa
 		const size_t count = std::min(mats.size(), size_t(kMaxInstances));
 		_program.uniforms("instances", count, mats.data());
 		_program.uniforms("instanceColors", count, tints.data());
-		// Strings: the spark of each note runs up its string, in the color of the note.
-		const bool strings = mesh.group == STRING && !shadowPass;
-		_program.uniform("sparks", strings);
-		if(strings){
-			for(size_t i = 0; i < count; ++i){
-				sparks[i] = spark(_notes[notes[i]]);
-				glows[i] = _noteColors[notes[i]];
-			}
-			_program.uniforms("instanceSpark", count, sparks.data());
-		}
 		_program.uniforms("instanceGlow", count, glows.data());
 		const Material & mat = _materials[mesh.material];
 		_program.uniform("albedo", mat.color);
@@ -509,36 +435,6 @@ void Upright::drawMeshes(int frontFilter, bool shadowPass, const std::array<floa
 		_program.uniform("gloss", mat.gloss);
 		glBindVertexArray(mesh.vao);
 		glDrawArraysInstanced(GL_TRIANGLES, 0, mesh.count, GLsizei(count));
-	}
-	_program.uniform("sparks", false);
-	// Heads of the flying sparks, with the action (behind the notes).
-	if(!shadowPass && frontFilter == 0){
-		mats.clear();
-		glows.clear();
-		std::vector<glm::vec4> heads;
-		for(int n : notes){
-			const glm::vec4 sp = spark(_notes[n]);
-			if(sp.y <= 0.0f || mats.size() >= size_t(kMaxInstances)){
-				continue;
-			}
-			glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(anchor[n], sp.x, _stringZ));
-			mats.push_back(glm::scale(m, glm::vec3(kSparkRadius)));
-			glows.push_back(_noteColors[n]);
-			heads.push_back(sp);
-		}
-		if(!mats.empty()){
-			const std::vector<glm::vec3> black(mats.size(), glm::vec3(0.0f));
-			_program.uniform("sparkHeads", true);
-			_program.uniforms("instances", mats.size(), mats.data());
-			_program.uniforms("instanceColors", black.size(), black.data());
-			_program.uniforms("instanceGlow", glows.size(), glows.data());
-			_program.uniforms("instanceSpark", heads.size(), heads.data());
-			_program.uniform("albedo", glm::vec3(0.0f));
-			_program.uniform("specular", 0.0f);
-			glBindVertexArray(_sparkHead.vao);
-			glDrawArraysInstanced(GL_TRIANGLES, 0, _sparkHead.count, GLsizei(mats.size()));
-			_program.uniform("sparkHeads", false);
-		}
 	}
 	glBindVertexArray(0);
 }
@@ -694,11 +590,6 @@ void Upright::draw(bool front, const glm::vec2 & invScreenSize, const Settings &
 
 void Upright::clean(){
 	load("");
-	if(_sparkHead.vao){
-		glDeleteBuffers(1, &_sparkHead.vbo);
-		glDeleteVertexArrays(1, &_sparkHead.vao);
-		_sparkHead = Mesh();
-	}
 	_program.clean();
 	if(_shadowFramebuffer){
 		glDeleteFramebuffers(1, &_shadowFramebuffer);

@@ -12,9 +12,6 @@ uniform vec3 instanceColors[MAX_INSTANCES]; ///< Per-instance tint (strings: ste
 uniform vec3 instanceGlow[MAX_INSTANCES]; ///< Light inside each key (color of its note, times how far it is pressed).
 uniform bool translucent = false; ///< Keys made of a milky material, lit from the inside when played.
 uniform bool noteLightsOn = true; ///< Lights of the notes (only on the keys: they must not leak between them).
-uniform vec4 instanceSpark[MAX_INSTANCES]; ///< Strings: x height of the spark running up the string, y its brightness, z tail length.
-uniform bool sparks = false; ///< This mesh is the strings: light the spark and its tail.
-uniform bool sparkHeads = false; ///< This mesh is the heads of the sparks: self-lit by instanceGlow * instanceSpark.y.
 uniform vec3 albedo;
 uniform float specular;
 uniform float gloss;
@@ -106,20 +103,9 @@ void main(){
 
 	// Lit from the inside: the light comes out more where the material is seen at a grazing angle
 	// (edges, thin parts), like milky plastic.
-	if(translucent && !sparks && !sparkHeads){
+	if(translucent){
 		float edge = pow(1.0 - abs(dot(n, v)), 1.5);
 		color += instanceGlow[In.instance] * (0.55 + 1.2 * edge);
-	}
-
-	// A spark running up a struck string, and the trail it leaves on the string.
-	if(sparks){
-		vec4 sp = instanceSpark[In.instance];
-		float d = p.y - sp.x;
-		float trail = d < 0.0 ? exp(d / max(sp.z, 0.01)) : exp(-d * d / 0.02);
-		color += instanceGlow[In.instance] * sp.y * trail * 3.0;
-	}
-	if(sparkHeads){
-		color += instanceGlow[In.instance] * instanceSpark[In.instance].y * 4.0;
 	}
 
 	// Soft tone mapping, so that light does not clip.
