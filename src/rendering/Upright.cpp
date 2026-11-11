@@ -19,7 +19,7 @@ static const glm::vec2 kBackcheckFelt(kTau * 25.0f, 1.2f);
 static const glm::vec2 kJackSpring(kTau * 18.0f, 0.35f);
 static const float kKeyGlow = 0.9f; ///< Light inside a key pressed to the bottom.
 // Spark running up a string when the hammer hits it.
-static const float kSparkDuration = 0.8f; ///< Seconds to reach the top of the string.
+static const float kSparkDuration = 0.4f; ///< Seconds to reach the top of the string.
 static const float kSparkStart = 12.1f; ///< Height where the hammer hits the string.
 static const float kSparkTail = 1.5f; ///< Length of the lit trail behind it, in white key widths.
 static const float kSparkRadius = 0.14f;
