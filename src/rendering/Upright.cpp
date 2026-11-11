@@ -17,6 +17,7 @@ static const glm::vec2 kStringFelt(kTau * 260.0f, 0.1f);
 static const glm::vec2 kCushionFelt(kTau * 30.0f, 0.55f);
 static const glm::vec2 kBackcheckFelt(kTau * 25.0f, 1.2f);
 static const glm::vec2 kJackSpring(kTau * 18.0f, 0.35f);
+static const float kKeyGlow = 0.9f; ///< Light inside a key pressed to the bottom.
 static const int kMaxInstances = 128;
 
 namespace {
@@ -341,13 +342,15 @@ glm::mat4 Upright::about(const glm::vec2 & pivot, float angle) const {
 	return glm::translate(m, glm::vec3(0.0f, -pivot.x, -pivot.y));
 }
 
-void Upright::instances(const Mesh & mesh, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight, std::vector<glm::mat4> & mats, std::vector<glm::vec3> & tints) const {
+void Upright::instances(const Mesh & mesh, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight, std::vector<glm::mat4> & mats, std::vector<glm::vec3> & tints, std::vector<glm::vec3> & glows) const {
 	mats.clear();
 	tints.clear();
+	glows.clear();
 	if(mesh.group == RAIL){
 		glm::mat4 m = glm::translate(glm::mat4(1.0f), glm::vec3(railLeft, 0.0f, 0.0f));
 		mats.push_back(glm::scale(m, glm::vec3(railRight - railLeft, 1.0f, 1.0f)));
 		tints.emplace_back(1.0f);
+		glows.emplace_back(0.0f);
 		return;
 	}
 	// Bass strings are copper wound: tint of the steel material.
@@ -400,24 +403,32 @@ void Upright::instances(const Mesh & mesh, const std::array<float, 128> & anchor
 				break;
 		}
 		tints.push_back(tint);
+		// The visible part of the keys is lit from the inside by the note, as deep as the key is pressed.
+		const float pressed = (mesh.group == KEY && mesh.front) ? glm::clamp(s.phi / _phiMax, 0.0f, 1.0f) : 0.0f;
+		glows.push_back(_noteColors[n] * (kKeyGlow * pressed));
 	}
 }
 
 void Upright::drawMeshes(int frontFilter, bool shadowPass, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight){
 	std::vector<glm::mat4> mats;
 	std::vector<glm::vec3> tints;
+	std::vector<glm::vec3> glows;
 	_program.uniform("shadowPass", shadowPass);
+	// The keys glow from the inside; the light of the notes only touches the keys, it must not leak between them.
+	_program.uniform("translucent", true);
+	_program.uniform("noteLightsOn", frontFilter == 1);
 	for(const Mesh & mesh : _meshes){
 		if(!shadowPass && int(mesh.front) != frontFilter){
 			continue;
 		}
-		instances(mesh, anchor, notes, railLeft, railRight, mats, tints);
+		instances(mesh, anchor, notes, railLeft, railRight, mats, tints, glows);
 		if(mats.empty()){
 			continue;
 		}
 		const size_t count = std::min(mats.size(), size_t(kMaxInstances));
 		_program.uniforms("instances", count, mats.data());
 		_program.uniforms("instanceColors", count, tints.data());
+		_program.uniforms("instanceGlow", count, glows.data());
 		const Material & mat = _materials[mesh.material];
 		_program.uniform("albedo", mat.color);
 		_program.uniform("specular", mat.specular);
@@ -509,6 +520,9 @@ void Upright::draw(bool front, const glm::vec2 & invScreenSize, const Settings &
 		std::array<glm::vec3, maxLights> colors;
 		int lightCount = 0;
 		const float blackTop = 0.514f;
+		for(const auto & lit : settings.litNotes){
+			_noteColors[lit.first] = lit.second;
+		}
 		for(const auto & lit : settings.litNotes){
 			if(lightCount >= maxLights){
 				break;

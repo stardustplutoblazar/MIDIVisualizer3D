@@ -103,7 +103,7 @@ private:
 	void step(NoteState & s, float travel, float h) const;
 
 	/// Model matrix of each instance of a mesh, and the color tint of each one.
-	void instances(const Mesh & mesh, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight, std::vector<glm::mat4> & mats, std::vector<glm::vec3> & tints) const;
+	void instances(const Mesh & mesh, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight, std::vector<glm::mat4> & mats, std::vector<glm::vec3> & tints, std::vector<glm::vec3> & glows) const;
 	glm::mat4 about(const glm::vec2 & pivot, float angle) const;
 
 	void drawMeshes(int frontFilter, bool shadowPass, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight);
@@ -125,6 +125,8 @@ private:
 	int _escapeRows = 0, _escapeCols = 0;
 
 	std::array<NoteState, 128> _notes{};
+	/// Color of the last note played on each key: the key keeps glowing in it while it comes back up.
+	std::array<glm::vec3, 128> _noteColors{};
 
 	GLuint _shadowFramebuffer = 0;
 	GLuint _shadowTexture = 0;

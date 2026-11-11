@@ -9,6 +9,9 @@ in INTERFACE {
 
 #define MAX_INSTANCES 128
 uniform vec3 instanceColors[MAX_INSTANCES]; ///< Per-instance tint (strings: steel or copper), (1,1,1) otherwise.
+uniform vec3 instanceGlow[MAX_INSTANCES]; ///< Light inside each key (color of its note, times how far it is pressed).
+uniform bool translucent = false; ///< Keys made of a milky material, lit from the inside when played.
+uniform bool noteLightsOn = true; ///< Lights of the notes (only on the keys: they must not leak between them).
 uniform vec3 albedo;
 uniform float specular;
 uniform float gloss;
@@ -83,7 +86,7 @@ void main(){
 
 	// Light from the point where each played note touches its key.
 	float reach = 4.0 * noteLightRadius;
-	for(int i = 0; i < noteLightCount; ++i){
+	for(int i = 0; i < (noteLightsOn ? noteLightCount : 0); ++i){
 		vec3 lp = noteLights[i];
 		if(abs(lp.x - p.x) > reach){
 			continue;
@@ -96,6 +99,13 @@ void main(){
 			fall *= clamp((reach - dl) / (2.0 * noteLightRadius), 0.0, 1.0);
 			color += shade(n, v, l, base, gloss, specular * 1.3, noteLightColors[i], fall);
 		}
+	}
+
+	// Lit from the inside: the light comes out more where the material is seen at a grazing angle
+	// (edges, thin parts), like milky plastic.
+	if(translucent){
+		float edge = pow(1.0 - abs(dot(n, v)), 1.5);
+		color += instanceGlow[In.instance] * (0.55 + 1.2 * edge);
 	}
 
 	// Soft tone mapping, so that light does not clip.
