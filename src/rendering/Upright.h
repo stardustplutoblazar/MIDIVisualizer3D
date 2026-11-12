@@ -37,14 +37,6 @@ public:
 		float noteLightRadius = 2.0f;
 		/// Played notes and the color of their light.
 		std::vector<std::pair<int, glm::vec3>> litNotes;
-		/// Debug: note tiles lying on the levers, coming from under the capstans towards the visible keys.
-		struct Tile {
-			int note = 0;
-			float front = 0.0f; ///< Along the lever: 0 at the end of the visible key, 1 at the capstan.
-			float back = 0.0f;
-			glm::vec3 color{1.0f};
-		};
-		std::vector<Tile> tiles;
 	};
 
 	void setup();
@@ -122,9 +114,6 @@ private:
 	void instances(const Mesh & mesh, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight, std::vector<glm::mat4> & mats, std::vector<glm::vec3> & tints, std::vector<glm::vec3> & glows) const;
 	glm::mat4 about(const glm::vec2 & pivot, float angle) const;
 
-	/// Debug tiles on the levers (action pass).
-	void drawTiles(const Settings & settings, const std::array<float, 128> & anchor, const std::vector<int> & notes);
-
 	void drawMeshes(int frontFilter, bool shadowPass, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight);
 
 	ShaderProgram _program;
@@ -150,9 +139,6 @@ private:
 	std::array<float, 128> _prevTravel{};
 	/// Color of the last note played on each key: the key keeps glowing in it while it comes back up.
 	std::array<glm::vec3, 128> _noteColors{};
-
-	GLuint _tileVao = 0; ///< Unit quad lying flat: x in [-0.5, 0.5], y 0, z in [0, 1].
-	GLuint _tileVbo = 0;
 
 	GLuint _shadowFramebuffer = 0;
 	GLuint _shadowTexture = 0;

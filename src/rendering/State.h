@@ -129,7 +129,7 @@ public:
 		glm::vec3 feltColor; ///< Felt strip behind the 3D keys.
 		bool upright; ///< Upright piano with its action instead of the 3D keys.
 		std::vector<std::string> uprightPath; ///< Its .piano model.
-		bool uprightTiles = true; ///< Debug: no notes nor particles over the upright (not saved).
+		bool uprightHideNotes = true; ///< Debug: no notes nor particles over the upright (not saved).
 	};
 
 	/// A baked 3D model standing on the 3D keyboard.
