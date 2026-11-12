@@ -102,7 +102,7 @@ bool Upright::load(const std::string & path){
 	Reader r(data);
 	r.offset = 4;
 	const uint32_t version = r.get<uint32_t>();
-	if(version != 2){
+	if(version != 3){
 		_error = "Unsupported .piano version " + std::to_string(version);
 		return false;
 	}
@@ -152,6 +152,8 @@ bool Upright::load(const std::string & path){
 		mesh.front = r.get<uint32_t>() != 0;
 		mesh.mask = r.get<uint32_t>();
 		mesh.material = int(r.get<uint32_t>());
+		mesh.minNote = int(r.get<uint32_t>());
+		mesh.maxNote = int(r.get<uint32_t>());
 		const uint32_t vertexCount = r.get<uint32_t>();
 		const std::vector<float> vertices = r.floats(size_t(vertexCount) * 6);
 		if(!r.ok || mesh.material >= int(_materials.size())){
@@ -406,7 +408,7 @@ void Upright::instances(const Mesh & mesh, const std::array<float, 128> & anchor
 	// Bass strings are copper wound: tint of the steel material.
 	const glm::vec3 copper = glm::vec3(0.72f, 0.42f, 0.24f) / glm::vec3(0.62f, 0.63f, 0.66f);
 	for(int n : notes){
-		if(((mesh.mask >> (n % 12)) & 1u) == 0){
+		if(((mesh.mask >> (n % 12)) & 1u) == 0 || n < mesh.minNote || n > mesh.maxNote){
 			continue;
 		}
 		const NoteState & s = _notes[n];

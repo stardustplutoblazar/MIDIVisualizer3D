@@ -73,6 +73,8 @@ private:
 		int group = 0;
 		bool front = false;
 		unsigned int mask = 0xFFF;
+		int minNote = 0; ///< Notes the mesh is drawn for (the keys at both ends have their own shape).
+		int maxNote = 127;
 		int material = 0;
 	};
 
