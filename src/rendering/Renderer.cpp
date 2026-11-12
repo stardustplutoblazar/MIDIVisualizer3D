@@ -552,10 +552,13 @@ bool Renderer::loadMascot(const std::string & path){
 }
 
 bool Renderer::updateKeyTravel(const std::shared_ptr<MIDIScene>& scene, float time, const State::KeyboardState & state, float * stepOut) {
-	// Key travel: a damped spring towards pressed or released, stiffer on the way down.
+	// Key travel: a damped spring towards where the finger is, stiffer on the way down.
+	// The finger goes down in a time given by the velocity of the note: a soft note is pressed slowly,
+	// so the hammers start smoothly instead of reaching the string within a frame. It goes up at once.
 	// The slight overshoot is the key hitting the felt at the bottom, and bouncing back on release.
 	// Driven by the scene time, so that exports are deterministic; when paused or seeking, keys snap.
 	const auto& actives = scene->getActiveKeys();
+	const auto& velocities = scene->getActiveVelocities();
 	const float dt = time - _keyAnimTime;
 	if(stepOut){
 		*stepOut = dt;
@@ -564,19 +567,24 @@ bool Renderer::updateKeyTravel(const std::shared_ptr<MIDIScene>& scene, float ti
 	const bool snap = dt <= 0.0f || dt > 0.25f;
 	const int substeps = snap ? 0 : int(std::ceil(dt / 0.001f));
 	const float h = substeps > 0 ? dt / float(substeps) : 0.0f;
+	const float speed = std::max(state.keySpeed, 0.01f);
 	for(size_t k = 0; k < actives.size(); ++k){
 		const float target = (state.highlightKeys && actives[k] >= 0) ? 1.0f : 0.0f;
 		if(snap){
 			_keyTravel[k] = target;
+			_keyPush[k] = target;
 			_keyVelocity[k] = 0.0f;
 			continue;
 		}
 		const bool pressing = target > 0.5f;
-		// Natural frequency (rad/s) and damping ratio: ~35ms down, ~70ms back up at speed 1.
-		const float omega = (pressing ? 75.0f : 40.0f) * state.keySpeed;
+		// Time for the finger to go down: 25 ms at full velocity, 100 ms for the softest notes, at speed 1.
+		const float downTime = (0.025f + 0.075f * (1.0f - glm::clamp(velocities[k], 0.0f, 1.0f))) / speed;
+		// Natural frequency (rad/s) and damping ratio: the key follows the finger.
+		const float omega = (pressing ? 75.0f : 40.0f) * speed;
 		const float zeta = pressing ? 0.55f : 0.5f;
 		for(int i = 0; i < substeps; ++i){
-			const float acc = omega * omega * (target - _keyTravel[k]) - 2.0f * zeta * omega * _keyVelocity[k];
+			_keyPush[k] = pressing ? std::min(1.0f, _keyPush[k] + h / downTime) : 0.0f;
+			const float acc = omega * omega * (_keyPush[k] - _keyTravel[k]) - 2.0f * zeta * omega * _keyVelocity[k];
 			_keyVelocity[k] += acc * h;
 			_keyTravel[k] += _keyVelocity[k] * h;
 		}

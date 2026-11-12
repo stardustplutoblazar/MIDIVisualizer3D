@@ -166,6 +166,7 @@ void MIDISceneLive::updatesActiveNotes(double time, double speed, const FilterOp
 
 			// If this is an on event with positive velocity, start a new note.
 			if(type == libremidi::message_type::NOTE_ON && velocity > 0){
+				_velocities[note] = float(velocity) / 127.0f;
 
 				const int index = _notesCount % MAX_NOTES_IN_FLIGHT;
 				// Get new note.

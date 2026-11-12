@@ -90,6 +90,7 @@ private:
 	/// Travel of each 3D key (0: rest, 1: bottom), animated by a spring so that presses have some weight.
 	std::array<float, 128> _keyTravel{};
 	std::array<float, 128> _keyVelocity{};
+	std::array<float, 128> _keyPush{}; ///< Where the finger is: goes down in a time given by the velocity of the note.
 	float _keyAnimTime = 0.0f;
 	float _minorWidth = 1.0f;
 	float _keyboardHeight = 0.25f;
