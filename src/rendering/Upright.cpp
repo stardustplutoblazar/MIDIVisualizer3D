@@ -101,7 +101,7 @@ bool Upright::load(const std::string & path){
 	Reader r(data);
 	r.offset = 4;
 	const uint32_t version = r.get<uint32_t>();
-	if(version != 1){
+	if(version != 2){
 		_error = "Unsupported .piano version " + std::to_string(version);
 		return false;
 	}
@@ -122,10 +122,15 @@ bool Upright::load(const std::string & path){
 	for(float & t : _tailOffset){
 		t = r.get<float>();
 	}
+	_phiMaxBlack = r.get<float>();
+	_keyPivotBlack = r.vec2();
+	_damperPivot = r.vec2();
 	const uint32_t phiCount = r.get<uint32_t>();
 	_psi = r.floats(phiCount);
 	_push = r.floats(phiCount);
 	_catch = r.floats(phiCount);
+	_psiBlack = r.floats(phiCount);
+	_damper = r.floats(phiCount);
 	_escapeRows = int(r.get<uint32_t>());
 	_escapeCols = int(r.get<uint32_t>());
 	_escape = r.floats(size_t(_escapeRows) * size_t(_escapeCols));
@@ -181,6 +186,13 @@ float Upright::table(const std::vector<float> & t, float phi) const {
 	return t[i] * (1.0f - f) + t[i + 1] * f;
 }
 
+float Upright::lerpTable(const std::vector<float> & t, float x01){
+	const float x = glm::clamp(x01, 0.0f, 1.0f) * float(t.size() - 1);
+	const int i = std::min(int(x), int(t.size()) - 2);
+	const float f = x - float(i);
+	return t[i] * (1.0f - f) + t[i + 1] * f;
+}
+
 float Upright::escape(float phi, float chi) const {
 	const float x = glm::clamp(phi / _phiMax, 0.0f, 1.0f) * float(_escapeRows - 1);
 	const int i = std::min(int(x), _escapeRows - 2);
@@ -221,9 +233,11 @@ static float felt(float x, float v, float rest, const glm::vec2 & wz, float side
 	return side * (w * w * pen) - 2.0f * wz.y * w * v * damping;
 }
 
-void Upright::step(NoteState & s, float travel, float h) const {
-	const float phiKey = travel * _phiMax;
-	const float target = table(_psi, phiKey);
+void Upright::step(NoteState & s, float travel, float h, bool black) const {
+	// Black keys turn about their own pin, with the same capstan lift: their own table of the wippen angle.
+	// Everything after the wippen is indexed by the white key angle that gives the same wippen angle.
+	const float phiKey = travel * (black ? _phiMaxBlack : _phiMax);
+	const float target = black ? lerpTable(_psiBlack, travel) : table(_psi, phiKey);
 	// Wippen: carried by the capstan while it pushes; when the key drops faster than the wippen falls,
 	// it falls under its weight, lands on the capstan felt and bounces a little.
 	const float targetVel = s.hasPrevTarget ? (target - s.prevTarget) / h : 0.0f;
@@ -251,6 +265,8 @@ void Upright::step(NoteState & s, float travel, float h) const {
 	const float phi = s.psi < -1e-6f ? std::max(0.0f, phiOfPsi(s.psi)) : 0.0f;
 	const float push = table(_push, phi);
 	const float catchAngle = table(_catch, phi);
+	// Damper: on the spoon while it is lifted, its spring brings it back as the wippen goes down.
+	s.damper = table(_damper, phi);
 	// Set-off: the jack lets the hammer go.
 	if(!s.escaped && push <= _chiSetoff + 1e-4f && travel > 0.3f){
 		s.escaped = true;
@@ -289,6 +305,7 @@ void Upright::step(NoteState & s, float travel, float h) const {
 		s.armed = false;
 	}
 	s.phi = phiKey;
+	s.travel = travel;
 }
 
 void Upright::update(const std::array<float, 128> & travel, float dt, bool snap){
@@ -300,9 +317,14 @@ void Upright::update(const std::array<float, 128> & travel, float dt, bool snap)
 		for(size_t k = 0; k < _notes.size(); ++k){
 			NoteState & s = _notes[k];
 			s = NoteState();
-			const float phi = glm::clamp(travel[k], 0.0f, 1.0f) * _phiMax;
-			s.phi = phi;
-			s.psi = table(_psi, phi);
+			const bool black = isMinorNote(int(k));
+			const float t = glm::clamp(travel[k], 0.0f, 1.0f);
+			s.phi = t * (black ? _phiMaxBlack : _phiMax);
+			s.travel = t;
+			s.psi = black ? lerpTable(_psiBlack, t) : table(_psi, s.phi);
+			// Tables after the wippen are indexed by the white key angle.
+			const float phi = black ? std::max(0.0f, phiOfPsi(s.psi)) : s.phi;
+			s.damper = table(_damper, phi);
 			s.prevTarget = s.psi;
 			s.hasPrevTarget = true;
 			const float push = table(_push, phi);
@@ -330,7 +352,7 @@ void Upright::update(const std::array<float, 128> & travel, float dt, bool snap)
 			continue;
 		}
 		for(int i = 0; i < substeps; ++i){
-			step(s, t, h);
+			step(s, t, h, isMinorNote(int(k)));
 		}
 	}
 }
@@ -356,7 +378,7 @@ void Upright::instances(const Mesh & mesh, const std::array<float, 128> & anchor
 	// Bass strings are copper wound: tint of the steel material.
 	const glm::vec3 copper = glm::vec3(0.72f, 0.42f, 0.24f) / glm::vec3(0.62f, 0.63f, 0.66f);
 	for(int n : notes){
-		if(mesh.group == KEY && ((mesh.mask >> (n % 12)) & 1u) == 0){
+		if(((mesh.mask >> (n % 12)) & 1u) == 0){
 			continue;
 		}
 		const NoteState & s = _notes[n];
@@ -365,7 +387,10 @@ void Upright::instances(const Mesh & mesh, const std::array<float, 128> & anchor
 		switch(mesh.group){
 			case KEY:
 			case CAPSTAN:
-				mats.push_back(a * about(_keyPivot, s.phi));
+				mats.push_back(a * about(isMinorNote(n) ? _keyPivotBlack : _keyPivot, s.phi));
+				break;
+			case DAMPER:
+				mats.push_back(a * about(_damperPivot, s.damper));
 				break;
 			case WIPPEN:
 				mats.push_back(a * about(_wippenPivot, s.psi));
@@ -404,7 +429,7 @@ void Upright::instances(const Mesh & mesh, const std::array<float, 128> & anchor
 		}
 		tints.push_back(tint);
 		// The visible part of the keys is lit from the inside by the note, as deep as the key is pressed.
-		const float pressed = (mesh.group == KEY && mesh.front) ? glm::clamp(s.phi / _phiMax, 0.0f, 1.0f) : 0.0f;
+		const float pressed = (mesh.group == KEY && mesh.front) ? glm::clamp(s.travel, 0.0f, 1.0f) : 0.0f;
 		glows.push_back(_noteColors[n] * (kKeyGlow * pressed));
 	}
 }

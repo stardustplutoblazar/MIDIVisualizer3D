@@ -12,6 +12,7 @@
 /// computed on the model (contacts between the parts), the rest is a small per-note simulation.
 /// Drawn in two passes: what is behind the visible part of the keys (the action) just above the background
 /// image, and the visible part of the keys where the keyboard is drawn, so that the notes fall between them.
+/// The spoon of each wippen lifts the damper off the string from the middle of the key travel.
 class Upright {
 public:
 
@@ -93,14 +94,18 @@ private:
 		bool escaped = false; ///< The jack has let the hammer go (set-off).
 		bool armed = false; ///< The hammer went past the backcheck after set-off: it will be caught.
 		float phi = 0.0f; ///< Key angle, for drawing.
+		float travel = 0.0f; ///< Key travel 0..1, for the glow.
+		float damper = 0.0f; ///< Damper lever angle (0: on the string).
 	};
 
-	enum Group { KEY = 0, CAPSTAN, WIPPEN, JACK, HAMMER, STATIC, RAIL, SPRING, STRING };
+	enum Group { KEY = 0, CAPSTAN, WIPPEN, JACK, HAMMER, STATIC, RAIL, SPRING, STRING, DAMPER };
 
 	float table(const std::vector<float> & t, float phi) const;
+	/// Linear interpolation in a table sampled over [0, 1].
+	static float lerpTable(const std::vector<float> & t, float x);
 	float escape(float phi, float chi) const;
 	float phiOfPsi(float psi) const;
-	void step(NoteState & s, float travel, float h) const;
+	void step(NoteState & s, float travel, float h, bool black) const;
 
 	/// Model matrix of each instance of a mesh, and the color tint of each one.
 	void instances(const Mesh & mesh, const std::array<float, 128> & anchor, const std::vector<int> & notes, float railLeft, float railRight, std::vector<glm::mat4> & mats, std::vector<glm::vec3> & tints, std::vector<glm::vec3> & glows) const;
@@ -118,10 +123,12 @@ private:
 	float _phiMax = 0.05f;
 	float _chiString = -0.37f;
 	float _chiSetoff = -0.35f;
+	float _phiMaxBlack = 0.05f; ///< Black keys: their own pivot and key angle, same capstan lift.
+	glm::vec2 _keyPivotBlack{0.0f}, _damperPivot{0.0f};
 	glm::vec2 _keyPivot{0.0f}, _wippenPivot{0.0f}, _jackPivot{0.0f}, _hammerPivot{0.0f}, _springBase{0.0f}, _springTop{0.0f};
 	float _stringZ = 0.0f, _stringBottom = 0.0f, _stringTop = 0.0f, _visibleEnd = 6.0f, _railMargin = 0.5f;
 	std::array<float, 12> _tailOffset{};
-	std::vector<float> _psi, _push, _catch, _escape;
+	std::vector<float> _psi, _psiBlack, _push, _catch, _damper, _escape;
 	int _escapeRows = 0, _escapeCols = 0;
 
 	std::array<NoteState, 128> _notes{};
