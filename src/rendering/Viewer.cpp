@@ -311,7 +311,7 @@ void Viewer::blurPrepass() {
 	glViewport(0, 0, _particlesFramebuffer->_width, _particlesFramebuffer->_height);
 	// Draw blurred particles from previous frames.
 	_passthrough.draw(_blurFramebuffer1->textureId(), _timer);
-	if (_state.showParticles) {
+	if (_state.showParticles && !(uprightActive() && _state.keyboard.uprightTiles)) {
 		// Draw the new particles.
 		_renderer.drawParticles(_scene, _timer, invSizeB, _state.particles, true);
 	}
@@ -364,6 +364,10 @@ void Viewer::drawBlur(const glm::vec2 &) {
 }
 
 void Viewer::drawParticles(const glm::vec2 & invSize) {
+	if(uprightActive() && _state.keyboard.uprightTiles){
+		// Debug: notes and particles hidden, to look at the action.
+		return;
+	}
 	_renderer.drawParticles(_scene, _timer, invSize, _state.particles, false);
 }
 
@@ -391,7 +395,7 @@ void Viewer::drawKeyboard(const glm::vec2 & invSize) {
 
 void Viewer::drawNotes(const glm::vec2 & invSize) {
 	if(uprightActive() && _state.keyboard.uprightTiles){
-		// Debug: the notes are drawn on the levers of the upright.
+		// Debug: notes and particles hidden, to look at the action.
 		return;
 	}
 	glEnable(GL_BLEND);
@@ -1158,7 +1162,7 @@ void Viewer::showKeyboardOptions(){
 				free(outPath);
 			}
 			ImGui::helpTooltip(s_keyboard_upright_path_dsc);
-			ImGui::Checkbox("Notes on levers (debug)##Upright", &_state.keyboard.uprightTiles);
+			ImGui::Checkbox("Hide notes (debug)##Upright", &_state.keyboard.uprightTiles);
 			if(_state.keyboard.uprightPath.empty()){
 				ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "Choose a .piano model");
 			} else if(!_renderer.uprightError().empty()){

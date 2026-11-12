@@ -1167,8 +1167,10 @@ void Renderer::drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, 
 			settings.litNotes.emplace_back(note, minor ? minorColors[set] : majorColors[set]);
 		}
 	}
-	if(!front && state.uprightTiles){
-		// Debug: the notes on the levers instead of the screen. The time they take from the capstan to the keys
+	// Idea on hold (to be reworked): the notes lying on the levers, coming from under the capstans.
+	constexpr bool leverNotes = false;
+	if(leverNotes && !front && state.uprightTiles){
+		// The notes on the levers instead of the screen. The time they take from the capstan to the keys
 		// is the time the flat notes take from the top of the screen to the keyboard.
 		const float window = (2.0f - 2.0f * _keyboardHeight) / std::max(_notesScale, 1e-3f);
 		static const int whitePc[7] = {0, 2, 4, 5, 7, 9, 11};
