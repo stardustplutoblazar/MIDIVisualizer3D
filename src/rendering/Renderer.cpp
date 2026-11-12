@@ -214,6 +214,7 @@ void Renderer::upload(const std::shared_ptr<MIDIScene>& scene){
 }
 
 void Renderer::setScaleAndMinorWidth(const float scale, const float minorWidth){
+	_notesScale = scale;
 	_programNotes.use();
 	_programNotes.uniform("mainSpeed", scale);
 	_programNotes.uniform("minorsWidth", minorWidth);
@@ -1126,7 +1127,7 @@ bool Renderer::loadUpright(const std::string & path){
 	return _upright.load(path);
 }
 
-void Renderer::drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, const ColorArray & majorColors, const ColorArray & minorColors, bool front) {
+void Renderer::drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, float notesTime, const glm::vec2 & invScreenSize, const State::KeyboardState & state, const ColorArray & majorColors, const ColorArray & minorColors, bool front) {
 	if(!_upright.loaded()){
 		return;
 	}
@@ -1164,6 +1165,31 @@ void Renderer::drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, 
 			const int pc = note % 12;
 			const bool minor = pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
 			settings.litNotes.emplace_back(note, minor ? minorColors[set] : majorColors[set]);
+		}
+	}
+	if(!front && state.uprightTiles){
+		// Debug: the notes on the levers instead of the screen. The time they take from the capstan to the keys
+		// is the time the flat notes take from the top of the screen to the keyboard.
+		const float window = (2.0f - 2.0f * _keyboardHeight) / std::max(_notesScale, 1e-3f);
+		static const int whitePc[7] = {0, 2, 4, 5, 7, 9, 11};
+		const auto& gpuNotes = scene->getNotes();
+		const size_t count = std::min(gpuNotes.size(), size_t(std::max(scene->getEffectiveNotesCount(), 0)));
+		for(size_t i = 0; i < count; ++i){
+			const auto& note = gpuNotes[i];
+			const float f0 = (note.start - notesTime) / window;
+			const float f1 = (note.start + note.duration - notesTime) / window;
+			if(f1 <= 0.0f || f0 >= 1.0f){
+				continue;
+			}
+			const int shifted = int(note.note);
+			const int midi = (shifted / 7) * 12 + whitePc[shifted % 7] + (note.isMinor > 0.5f ? 1 : 0);
+			const int set = glm::clamp(int(note.set), 0, int(majorColors.size()) - 1);
+			Upright::Settings::Tile tile;
+			tile.note = midi;
+			tile.front = glm::clamp(f0, 0.0f, 1.0f);
+			tile.back = glm::clamp(f1, 0.0f, 1.0f);
+			tile.color = note.isMinor > 0.5f ? minorColors[set] : majorColors[set];
+			settings.tiles.push_back(tile);
 		}
 	}
 	_upright.draw(front, invScreenSize, settings);

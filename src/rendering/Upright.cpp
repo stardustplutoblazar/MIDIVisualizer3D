@@ -71,6 +71,22 @@ void Upright::setup(){
 	glDrawBuffer(GL_NONE);
 	glReadBuffer(GL_NONE);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	// Debug tiles: a unit quad facing up (position, normal).
+	const float quad[] = {
+		-0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,   0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,   0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f,
+		-0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f,   0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f,  -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f,
+	};
+	glGenVertexArrays(1, &_tileVao);
+	glBindVertexArray(_tileVao);
+	glGenBuffers(1, &_tileVbo);
+	glBindBuffer(GL_ARRAY_BUFFER, _tileVbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+	glBindVertexArray(0);
 	checkGLError();
 	_ready = true;
 }
@@ -492,6 +508,58 @@ void Upright::drawMeshes(int frontFilter, bool shadowPass, const std::array<floa
 	glBindVertexArray(0);
 }
 
+void Upright::drawTiles(const Settings & settings, const std::array<float, 128> & anchor, const std::vector<int> & notes){
+	// Flat on the levers (just above the balance and back blocks), from the end of the visible key to under the
+	// capstan; they turn with their lever. Lit from the inside in the color of the note, like the keys.
+	const float tileY = 0.16f;
+	const float tileBack = 532.0f / 35.0f;
+	const float tileWidth = 0.42f;
+	std::array<bool, 128> shown{};
+	for(int n : notes){
+		shown[n] = true;
+	}
+	std::vector<glm::mat4> mats;
+	std::vector<glm::vec3> tints;
+	std::vector<glm::vec3> glows;
+	_program.uniform("shadowPass", false);
+	_program.uniform("translucent", true);
+	_program.uniform("noteLightsOn", false);
+	_program.uniform("albedo", glm::vec3(0.04f));
+	_program.uniform("specular", 0.0f);
+	_program.uniform("gloss", 1.0f);
+	glBindVertexArray(_tileVao);
+	auto flush = [&](){
+		if(mats.empty()){
+			return;
+		}
+		_program.uniforms("instances", mats.size(), mats.data());
+		_program.uniforms("instanceColors", tints.size(), tints.data());
+		_program.uniforms("instanceGlow", glows.size(), glows.data());
+		glDrawArraysInstanced(GL_TRIANGLES, 0, 6, GLsizei(mats.size()));
+		mats.clear();
+		tints.clear();
+		glows.clear();
+	};
+	for(const Settings::Tile & tile : settings.tiles){
+		const int n = tile.note;
+		if(n < 0 || n > 127 || !shown[n]){
+			continue;
+		}
+		const float z0 = _visibleEnd + tile.front * (tileBack - _visibleEnd);
+		const float z1 = _visibleEnd + tile.back * (tileBack - _visibleEnd);
+		const glm::mat4 lever = glm::translate(glm::mat4(1.0f), glm::vec3(anchor[n], 0.0f, 0.0f)) * about(isMinorNote(n) ? _keyPivotBlack : _keyPivot, _notes[n].phi);
+		glm::mat4 m = glm::translate(lever, glm::vec3(0.0f, tileY, z0));
+		mats.push_back(glm::scale(m, glm::vec3(tileWidth, 1.0f, z1 - z0)));
+		tints.emplace_back(1.0f);
+		glows.push_back(tile.color * 1.2f);
+		if(mats.size() == size_t(kMaxInstances)){
+			flush();
+		}
+	}
+	flush();
+	glBindVertexArray(0);
+}
+
 void Upright::draw(bool front, const glm::vec2 & invScreenSize, const Settings & settings){
 	if(!_ready || !loaded()){
 		return;
@@ -635,6 +703,9 @@ void Upright::draw(bool front, const glm::vec2 & invScreenSize, const Settings &
 	_program.uniform("depthRange", front ? glm::vec2(0.0f, 0.5f) : glm::vec2(0.5f, 1.0f));
 	_program.texture("shadowMap", _shadowTexture, GL_TEXTURE_2D);
 	drawMeshes(front ? 1 : 0, false, anchor, notes, railLeft, railRight);
+	if(!front && !settings.tiles.empty()){
+		drawTiles(settings, anchor, notes);
+	}
 
 	glDisable(GL_DEPTH_TEST);
 	glUseProgram(0);
@@ -642,6 +713,8 @@ void Upright::draw(bool front, const glm::vec2 & invScreenSize, const Settings &
 }
 
 void Upright::clean(){
+	glDeleteBuffers(1, &_tileVbo);
+	glDeleteVertexArrays(1, &_tileVao);
 	load("");
 	_program.clean();
 	if(_shadowFramebuffer){

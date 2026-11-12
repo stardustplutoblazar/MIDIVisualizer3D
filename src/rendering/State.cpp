@@ -951,6 +951,7 @@ void State::reset(){
 	keyboard.style3D = false;
 	keyboard.upright = false;
 	keyboard.uprightPath.clear();
+	keyboard.uprightTiles = true;
 	keyboard.tilt = 40.0f;
 	keyboard.perspective = 91.0f;
 	keyboard.fillLight = 0.7f;

@@ -64,7 +64,8 @@ public:
 	void setUprightNotes(bool on){ _uprightNotes = on; }
 	/// The action of the upright piano (front == false, right above the background image), or the visible
 	/// part of its keys (front == true, in place of the keyboard). The notes fall in between.
-	void drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::KeyboardState & state, const ColorArray & majorColors, const ColorArray & minorColors, bool front);
+	/// notesTime: time of the notes (scaled by the scroll speed), for the debug tiles on the levers.
+	void drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, float notesTime, const glm::vec2 & invScreenSize, const State::KeyboardState & state, const ColorArray & majorColors, const ColorArray & minorColors, bool front);
 
 	void drawPedals(const std::shared_ptr<MIDIScene>& scene, float time, const glm::vec2 & invScreenSize, const State::PedalsState & state, float keyboardHeight, bool horizontalMode);
 
@@ -94,6 +95,7 @@ private:
 	float _keyAnimTime = 0.0f;
 	float _minorWidth = 1.0f;
 	float _keyboardHeight = 0.25f;
+	float _notesScale = 1.0f; ///< Speed of the notes (screen heights per second, x2).
 	/// The 3D keyboard at rest, rendered once and reused for the keys where nothing happens.
 	std::shared_ptr<Framebuffer> _keys3DBake;
 	/// Everything the baked image depends on; it is rendered again when any of it changes.

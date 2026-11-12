@@ -275,7 +275,7 @@ void Viewer::drawScene(bool transparentBG){
 			continue;
 		}
 		if(!uprightBackDrawn && layerId != Layer::BGTEXTURE && layerId != Layer::BLUR && layerId != Layer::BGCOLOR){
-			_renderer.drawUpright(_scene, _timer, invSizeFb, _state.keyboard, _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors, _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors, false);
+			_renderer.drawUpright(_scene, _timer, _timer * _state.scrollSpeed, invSizeFb, _state.keyboard, _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors, _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors, false);
 			uprightBackDrawn = true;
 		}
 		if (_layers[layerId].draw && *(_layers[layerId].toggle)) {
@@ -283,7 +283,7 @@ void Viewer::drawScene(bool transparentBG){
 		}
 	}
 	if(!uprightBackDrawn){
-		_renderer.drawUpright(_scene, _timer, invSizeFb, _state.keyboard, _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors, _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors, false);
+		_renderer.drawUpright(_scene, _timer, _timer * _state.scrollSpeed, invSizeFb, _state.keyboard, _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors, _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors, false);
 	}
 
 	_renderFramebuffer->unbind();
@@ -315,7 +315,7 @@ void Viewer::blurPrepass() {
 		// Draw the new particles.
 		_renderer.drawParticles(_scene, _timer, invSizeB, _state.particles, true);
 	}
-	if (_state.showBlurNotes) {
+	if (_state.showBlurNotes && !(uprightActive() && _state.keyboard.uprightTiles)) {
 		// Draw the notes.
 		_renderer.drawNotes(_scene, _timer * _state.scrollSpeed, invSizeB, _state.notes, _state.reverseScroll, true);
 	}
@@ -379,7 +379,7 @@ void Viewer::drawKeyboard(const glm::vec2 & invSize) {
 	const ColorArray & majColors = _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors;
 	const ColorArray & minColors = _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors;
 	if(uprightActive()){
-		_renderer.drawUpright(_scene, _timer, invSize, _state.keyboard, _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors, _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors, true);
+		_renderer.drawUpright(_scene, _timer, _timer * _state.scrollSpeed, invSize, _state.keyboard, _state.keyboard.customKeyColors ? _state.keyboard.majorColor : _state.notes.majorColors, _state.keyboard.customKeyColors ? _state.keyboard.minorColor : _state.notes.minorColors, true);
 		return;
 	}
 	if(_state.keyboard.style3D && !_state.horizontalScroll){
@@ -390,6 +390,10 @@ void Viewer::drawKeyboard(const glm::vec2 & invSize) {
 }
 
 void Viewer::drawNotes(const glm::vec2 & invSize) {
+	if(uprightActive() && _state.keyboard.uprightTiles){
+		// Debug: the notes are drawn on the levers of the upright.
+		return;
+	}
 	glEnable(GL_BLEND);
 	_renderer.drawNotes(_scene, _timer * _state.scrollSpeed, invSize, _state.notes, _state.reverseScroll, false);
 	glDisable(GL_BLEND);
@@ -1154,6 +1158,7 @@ void Viewer::showKeyboardOptions(){
 				free(outPath);
 			}
 			ImGui::helpTooltip(s_keyboard_upright_path_dsc);
+			ImGui::Checkbox("Notes on levers (debug)##Upright", &_state.keyboard.uprightTiles);
 			if(_state.keyboard.uprightPath.empty()){
 				ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "Choose a .piano model");
 			} else if(!_renderer.uprightError().empty()){
