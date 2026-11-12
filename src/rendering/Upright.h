@@ -89,6 +89,7 @@ private:
 		bool hasPrevTarget = false;
 		float prevCatch = 0.0f; ///< Catch angle at the previous step, to know if the backcheck is moving.
 		bool hasPrevCatch = false;
+		float lastTravel = 0.0f; ///< Key travel at the previous step, to know if the key goes down.
 		float chi = 0.0f; ///< Hammer angle (negative: towards the string).
 		float omega = 0.0f; ///< Hammer angular speed.
 		float zeta = 0.0f; ///< Jack tilt away from the butt.
@@ -134,6 +135,8 @@ private:
 	int _escapeRows = 0, _escapeCols = 0;
 
 	std::array<NoteState, 128> _notes{};
+	/// Key travel at the previous frame of each note.
+	std::array<float, 128> _prevTravel{};
 	/// Color of the last note played on each key: the key keeps glowing in it while it comes back up.
 	std::array<glm::vec3, 128> _noteColors{};
 

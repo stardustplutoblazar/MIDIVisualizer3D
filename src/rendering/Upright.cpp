@@ -12,9 +12,9 @@ static const float kTau = 6.2831853f;
 static const float kWippenGravity = 90.0f; ///< rad/s^2, wippen falling back onto the capstan.
 static const float kWippenBounce = 0.3f; ///< Share of the speed the wippen keeps when it lands on the capstan.
 static const float kHammerReturn = 30.0f; ///< rad/s^2, butt spring and gravity.
-static const glm::vec2 kJackFelt(kTau * 60.0f, 0.3f);
+static const glm::vec2 kJackFelt(kTau * 60.0f, 1.0f); ///< The hammer falling back on the jack does not bounce off it.
 static const glm::vec2 kStringFelt(kTau * 260.0f, 0.1f);
-static const glm::vec2 kCushionFelt(kTau * 30.0f, 0.55f);
+static const glm::vec2 kCushionFelt(kTau * 30.0f, 1.5f); ///< Hammer rail felt: soft, the hammer does not bounce off it.
 static const glm::vec2 kBackcheckFelt(kTau * 25.0f, 1.2f);
 static const glm::vec2 kJackSpring(kTau * 18.0f, 0.35f);
 static const float kKeyGlow = 0.9f; ///< Light inside a key pressed to the bottom.
@@ -85,6 +85,7 @@ bool Upright::load(const std::string & path){
 	_materials.clear();
 	_error.clear();
 	_notes = {};
+	_prevTravel = {};
 	if(path.empty()){
 		return true;
 	}
@@ -282,6 +283,11 @@ void Upright::step(NoteState & s, float travel, float h, bool black) const {
 	s.prevCatch = catchAngle;
 	s.hasPrevCatch = true;
 	bool behind = false;
+	// Armed as soon as the hammer comes back after the set-off (from the string, or short of it on a very soft
+	// note): the backcheck catches it, even if the key reaches the bottom after the hammer came back.
+	if(s.escaped && s.omega > 0.0f){
+		s.armed = true;
+	}
 	if(s.escaped && catchAngle < 0.0f){
 		if(s.chi < catchAngle - 0.01f){
 			s.armed = true;
@@ -311,7 +317,11 @@ void Upright::step(NoteState & s, float travel, float h, bool black) const {
 		s.zeta = 0.0f;
 		s.zetaVel = std::max(s.zetaVel, 0.0f);
 	}
-	if(s.escaped && need <= 1e-4f && s.chi >= push - 0.02f && travel < 0.6f){
+	// The jack gets back under the butt only once it is not ahead of the hammer (else it would throw it again),
+	// and only while the key is not going down.
+	const bool rising = travel <= s.lastTravel + 1e-7f;
+	s.lastTravel = travel;
+	if(s.escaped && need <= 1e-4f && push >= s.chi - 0.02f && travel < 0.6f && rising){
 		s.escaped = false;
 		s.armed = false;
 	}
@@ -338,6 +348,8 @@ void Upright::update(const std::array<float, 128> & travel, float dt, bool snap)
 			s.damper = table(_damper, phi);
 			s.prevTarget = s.psi;
 			s.hasPrevTarget = true;
+			s.lastTravel = t;
+			_prevTravel[k] = t;
 			const float push = table(_push, phi);
 			if(travel[k] > 0.5f){
 				const float c = table(_catch, phi);
@@ -360,10 +372,15 @@ void Upright::update(const std::array<float, 128> & travel, float dt, bool snap)
 		if(std::abs(t) < 1e-4f && std::abs(s.chi) < 1e-5f && std::abs(s.omega) < 1e-3f && s.zeta < 1e-5f && std::abs(s.psi) < 1e-6f && !s.escaped){
 			s = NoteState();
 			s.hasPrevTarget = true;
+			_prevTravel[k] = t;
 			continue;
 		}
+		// The key travel is given once per frame: spread it over the substeps, so that the action moves smoothly
+		// (a jump of the key at each frame made the wippen and the backcheck jerk, and threw the hammers).
+		const float t0 = _prevTravel[k];
+		_prevTravel[k] = t;
 		for(int i = 0; i < substeps; ++i){
-			step(s, t, h, isMinorNote(int(k)));
+			step(s, t0 + (t - t0) * float(i + 1) / float(substeps), h, isMinorNote(int(k)));
 		}
 	}
 }
