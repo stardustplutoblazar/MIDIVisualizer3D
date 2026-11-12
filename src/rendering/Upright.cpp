@@ -278,16 +278,27 @@ void Upright::step(NoteState & s, float travel, float h, bool black) const {
 	}
 	acc += felt(s.chi, s.omega, _chiString, kStringFelt, 1.0f);
 	acc += felt(s.chi, s.omega, 0.0f, kCushionFelt, -1.0f);
+	const float catchVel = s.hasPrevCatch ? (catchAngle - s.prevCatch) / h : 0.0f;
+	s.prevCatch = catchAngle;
+	s.hasPrevCatch = true;
+	bool behind = false;
 	if(s.escaped && catchAngle < 0.0f){
 		if(s.chi < catchAngle - 0.01f){
 			s.armed = true;
 		}
 		if(s.armed){
 			acc += felt(s.chi, s.omega, catchAngle, kBackcheckFelt, -1.0f);
+			behind = s.chi > catchAngle;
 		}
 	}
 	s.omega += acc * h;
 	s.chi += s.omega * h;
+	// The backcheck coming up behind a hammer that is already back (soft notes: the key reaches the bottom
+	// after the hammer bounced) carries it, held against it: it must not throw it at the string again.
+	if(behind && catchVel < 0.0f && s.chi > catchAngle){
+		s.chi = catchAngle;
+		s.omega = 0.0f;
+	}
 	// Jack: its spring brings it back under the butt, never into it.
 	const float need = s.escaped ? escape(phi, s.chi) : 0.0f;
 	s.zetaVel += (kJackSpring.x * kJackSpring.x * (need - s.zeta) - 2.0f * kJackSpring.y * kJackSpring.x * s.zetaVel) * h;

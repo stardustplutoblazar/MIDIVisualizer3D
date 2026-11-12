@@ -87,6 +87,8 @@ private:
 		float psiVel = 0.0f;
 		float prevTarget = 0.0f; ///< Wippen angle given by the key at the previous step.
 		bool hasPrevTarget = false;
+		float prevCatch = 0.0f; ///< Catch angle at the previous step, to know if the backcheck is moving.
+		bool hasPrevCatch = false;
 		float chi = 0.0f; ///< Hammer angle (negative: towards the string).
 		float omega = 0.0f; ///< Hammer angular speed.
 		float zeta = 0.0f; ///< Jack tilt away from the butt.
