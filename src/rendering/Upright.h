@@ -56,8 +56,9 @@ public:
 		return o;
 	}
 
-	/// Advance the simulation of every note. travel: 0 rest, 1 key at the bottom. snap: jump to the steady state.
-	void update(const std::array<float, 128> & travel, float dt, bool snap);
+	/// Advance the simulation of every note. travel: 0 rest, 1 key at the bottom. pedal: damper (sustain) pedal,
+	/// 0 up, 1 down. snap: jump to the steady state.
+	void update(const std::array<float, 128> & travel, float pedal, float dt, bool snap);
 
 	/// Shadow map and action (front == false), or visible part of the keys (front == true).
 	void draw(bool front, const glm::vec2 & invScreenSize, const Settings & settings);
@@ -137,6 +138,8 @@ private:
 	int _escapeRows = 0, _escapeCols = 0;
 
 	std::array<NoteState, 128> _notes{};
+	/// Damper lift rod, moved by the sustain pedal: 0 at rest, 1 all the dampers as far off as a key at the bottom.
+	float _pedal = 0.0f;
 	/// Key travel at the previous frame of each note.
 	std::array<float, 128> _prevTravel{};
 	/// Color of the last note played on each key: the key keeps glowing in it while it comes back up.

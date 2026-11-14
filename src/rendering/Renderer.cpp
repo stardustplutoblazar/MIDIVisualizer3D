@@ -1134,7 +1134,7 @@ void Renderer::drawUpright(const std::shared_ptr<MIDIScene>& scene, float time, 
 		// Once per frame, before anything else of the piano: key travel and the actions.
 		float dt = 0.0f;
 		const bool snap = updateKeyTravel(scene, time, state, &dt);
-		_upright.update(_keyTravel, dt, snap);
+		_upright.update(_keyTravel, scene->getPedals().damper, dt, snap);
 	}
 	Upright::Settings settings;
 	settings.tilt = state.tilt;

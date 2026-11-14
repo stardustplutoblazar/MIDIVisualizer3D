@@ -18,6 +18,7 @@ static const glm::vec2 kCushionFelt(kTau * 30.0f, 1.5f); ///< Hammer rail felt: 
 static const glm::vec2 kBackcheckFelt(kTau * 25.0f, 1.2f);
 static const glm::vec2 kJackSpring(kTau * 18.0f, 0.35f);
 static const float kKeyGlow = 0.9f; ///< Light inside a key pressed to the bottom.
+static const float kPedalTime = 0.04f; ///< s, the damper lift rod following the sustain pedal.
 static const int kMaxInstances = 128;
 
 namespace {
@@ -331,10 +332,13 @@ void Upright::step(NoteState & s, float travel, float h, bool black) const {
 	s.travel = travel;
 }
 
-void Upright::update(const std::array<float, 128> & travel, float dt, bool snap){
+void Upright::update(const std::array<float, 128> & travel, float pedal, float dt, bool snap){
 	if(!loaded()){
 		return;
 	}
+	// Sustain pedal: the lift rod pushes all the damper levers at once (it follows the pedal in ~40 ms).
+	pedal = glm::clamp(pedal, 0.0f, 1.0f);
+	_pedal = snap ? pedal : _pedal + (pedal - _pedal) * (1.0f - std::exp(-dt / kPedalTime));
 	if(snap){
 		// Paused or seeking: the steady state of each key, pressed (hammer caught) or at rest.
 		for(size_t k = 0; k < _notes.size(); ++k){
@@ -419,9 +423,12 @@ void Upright::instances(const Mesh & mesh, const std::array<float, 128> & anchor
 			case CAPSTAN:
 				mats.push_back(a * about(isMinorNote(n) ? _keyPivotBlack : _keyPivot, s.phi));
 				break;
-			case DAMPER:
-				mats.push_back(a * about(_damperPivot, s.damper));
+			case DAMPER: {
+				// Off the string by its key (the spoon) or by the pedal (the lift rod), whichever lifts it more.
+				const float rod = _pedal * (_damper.empty() ? 0.0f : _damper.back());
+				mats.push_back(a * about(_damperPivot, std::abs(rod) > std::abs(s.damper) ? rod : s.damper));
 				break;
+			}
 			case WIPPEN:
 				mats.push_back(a * about(_wippenPivot, s.psi));
 				break;
